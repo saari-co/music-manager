@@ -19,15 +19,27 @@ or explicit-approval principles.
 
 ## v0.2 — Library Analysis
 
-**Status:** Planned
+**Status:** In development
 
-- Exact and probable duplicate detection.
-- Bitrate and format analysis.
-- Explainable quality scoring.
-- Corruption and unreadable-file detection.
-- Folder and library statistics.
+- Analyze an existing `library_scan.csv` without accessing music files.
+- Report duplicate candidates using normalized artist, title, and duration.
+- Summarize bitrate ranges, unknown bitrates, and lossless formats.
+- Report missing artist, title, album, year, and track number values.
+- Extract corrupt and unreadable scan rows into a focused report.
+- Summarize folder depths, loose tracks, deepest files, and extreme nesting.
+- Cover analysis behavior with synthetic CSV fixtures.
 
-All findings remain read-only and report-driven.
+Planned outputs:
+
+- `library_analysis.csv`
+- `duplicate_candidates.csv`
+- `missing_metadata.csv`
+- `corrupt_files.csv`
+- `quality_summary.csv`
+- `folder_summary.csv`
+
+All findings remain read-only and report-driven. Duplicate reports identify
+candidates only and do not recommend deletion.
 
 ## v0.3 — MusicBrainz Integration
 

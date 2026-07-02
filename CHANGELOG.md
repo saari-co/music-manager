@@ -7,6 +7,22 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Added an `analyze` CLI command for existing library scan CSV files.
+- Added duplicate candidate grouping with normalized metadata and configurable
+  duration tolerance.
+- Added focused reports for missing metadata, corrupt files, bitrate quality,
+  folder depth, loose tracks, and extreme nesting.
+- Added synthetic CSV tests for the complete analysis layer.
+
+### Security
+
+- Analysis operates only on CSV records and never opens or modifies referenced
+  music files.
+
+## [0.1.1] - 2026-07-02
+
 ### Changed
 
 - Restructured the scanner into a reusable `music_manager` application package.
