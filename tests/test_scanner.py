@@ -1,0 +1,118 @@
+"""Tests for read-only discovery, metadata extraction, and reporting."""
+
+from __future__ import annotations
+
+import csv
+import tempfile
+import unittest
+import wave
+from pathlib import Path
+
+from music_manager.reports import write_csv_report
+from music_manager.scanner import scan_library
+
+
+class _FakeInfo:
+    bitrate = 320000
+    length = 183.4567
+
+
+class _FakeAudio:
+    tags = {
+        "artist": ["Test Artist"],
+        "title": ["Test Title"],
+        "album": ["Test Album"],
+        "date": ["2026"],
+        "tracknumber": ["1/2"],
+    }
+    info = _FakeInfo()
+
+
+class ScannerTests(unittest.TestCase):
+    """Exercise the scanner without using or distributing real audio."""
+
+    def test_scan_library_discovers_supported_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory).resolve()
+            album = source / "Artist" / "Album"
+            album.mkdir(parents=True)
+            (album / "01 Track.mp3").touch()
+            (album / "02 Track.FLAC").touch()
+            (source / "Loose Track.m4a").touch()
+            (source / "Archive.ZIP").touch()
+            (source / "notes.txt").touch()
+
+            result = scan_library(source, metadata_loader=lambda path: _FakeAudio())
+
+            self.assertEqual(len(result.records), 4)
+            self.assertEqual(result.summary.audio_count, 3)
+            self.assertEqual(result.summary.archive_count, 1)
+            self.assertEqual(result.summary.loose_track_count, 1)
+            self.assertEqual(result.summary.file_error_count, 0)
+
+            audio_records = [
+                record for record in result.records if record.file_type == "audio"
+            ]
+            self.assertTrue(
+                all(record.artist == "Test Artist" for record in audio_records)
+            )
+            self.assertTrue(
+                all(record.bitrate_kbps == 320.0 for record in audio_records)
+            )
+
+    def test_csv_report_uses_stable_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory).resolve()
+            audio_path = source / "Track.mp3"
+            audio_path.touch()
+            result = scan_library(
+                source, metadata_loader=lambda path: _FakeAudio()
+            )
+            report_path = source / "output" / "scan.csv"
+
+            write_csv_report(result.records, report_path)
+
+            with report_path.open(encoding="utf-8", newline="") as report_file:
+                rows = list(csv.DictReader(report_file))
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["artist"], "Test Artist")
+            self.assertEqual(rows[0]["extension"], ".mp3")
+            self.assertEqual(rows[0]["status"], "ok")
+
+    def test_generated_wav_is_read_by_mutagen(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory).resolve()
+            audio_path = source / "Generated Silence.wav"
+            with wave.open(str(audio_path), "wb") as audio_file:
+                audio_file.setnchannels(1)
+                audio_file.setsampwidth(2)
+                audio_file.setframerate(8000)
+                audio_file.writeframes(b"\x00\x00" * 800)
+
+            result = scan_library(source)
+
+            self.assertEqual(len(result.records), 1)
+            self.assertEqual(result.records[0].status, "ok")
+            self.assertEqual(result.records[0].bitrate_kbps, 128.0)
+            self.assertAlmostEqual(
+                result.records[0].duration_seconds or 0.0, 0.1, places=3
+            )
+
+    def test_metadata_error_is_non_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory).resolve()
+            (source / "Unreadable.mp3").touch()
+
+            def raise_metadata_error(path: Path) -> None:
+                raise ValueError("synthetic metadata failure")
+
+            result = scan_library(source, metadata_loader=raise_metadata_error)
+
+            self.assertEqual(result.summary.file_error_count, 1)
+            self.assertEqual(result.records[0].status, "error")
+            self.assertIn("synthetic metadata failure", result.records[0].error)
+
+
+if __name__ == "__main__":
+    unittest.main()

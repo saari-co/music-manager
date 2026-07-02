@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Restructured the scanner into a reusable `music_manager` application package.
+- Reduced `scripts/scan_library.py` to a compatibility launcher.
+- Added typed scan models, report boundaries, future feature modules, and an
+  automated test foundation.
+- Expanded project philosophy, milestone planning, and contribution workflow
+  documentation.
+
 ## [0.1.0] - 2026-07-02
 
 ### Added

@@ -35,6 +35,10 @@ What happened instead?
 - Python version:
 - Operating system:
 
+## Affected component
+
+For example: scanner, reports, CLI, duplicates, MusicBrainz, dashboard, or UI.
+
 ## Sanitized output
 
 Provide the smallest useful error message or output. Replace personal paths,

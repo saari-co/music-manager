@@ -1,53 +1,96 @@
 # Roadmap
 
-This roadmap describes the intended direction of Music Manager. Scope and
-ordering may change as safety requirements and real-world library behavior
-become better understood.
+Music Manager is developed through versioned milestones. Each milestone should
+have corresponding GitHub issues, a milestone, reviewed pull requests,
+changelog entries, a version tag, and release notes.
 
-## Phase 1: Discovery and reporting
+Scope may change as safety requirements and real-world library behavior become
+better understood. No milestone may weaken the local-first, read-only-default,
+or explicit-approval principles.
 
-- Maintain a read-only recursive library scanner.
-- Improve metadata coverage, report clarity, and test fixtures.
-- Document ambiguous files and incomplete tags without modifying source data.
+## v0.1 — Read-only Scanner
 
-## Phase 2: Duplicate detection and quality analysis
+**Status:** Released
 
-- Detect exact duplicates using cryptographic hashes.
-- Identify likely duplicates using metadata and audio characteristics.
-- Compare format, bitrate, duration, and completeness without auto-deleting.
+- Recursively discover supported audio files and ZIP archives.
+- Extract common metadata, bitrate, duration, file size, and folder depth.
+- Write a CSV inventory without changing source files.
+- Continue past unreadable files and provide a terminal summary.
 
-## Phase 3: MusicBrainz matching and confidence scoring
+## v0.2 — Library Analysis
 
-- Query MusicBrainz using privacy-conscious, user-initiated workflows.
-- Rank possible recording and release matches.
-- Expose confidence and ambiguity instead of silently selecting metadata.
+**Status:** Planned
 
-## Phase 4: Staging library copy with checksum validation
+- Exact and probable duplicate detection.
+- Bitrate and format analysis.
+- Explainable quality scoring.
+- Corruption and unreadable-file detection.
+- Folder and library statistics.
 
-- Copy selected files into a separate staging library.
-- Verify every staged copy with checksums.
-- Preserve the source library as read-only.
+All findings remain read-only and report-driven.
 
-## Phase 5: Safe retagging and renaming in staging only
+## v0.3 — MusicBrainz Integration
 
-- Apply approved metadata and naming rules only to staged copies.
-- Preview changes and retain an auditable operation log.
-- Validate staged files after each operation.
+**Status:** Planned
 
-## Phase 6: HTML dashboard
+- Album and recording matching.
+- Confidence scoring for candidate matches.
+- Metadata verification and ambiguity reporting.
+- User-controlled, privacy-conscious external lookups.
 
-- Provide a local report dashboard for filtering and review.
-- Visualize missing metadata, duplicates, quality, and match confidence.
-- Keep generated dashboards out of version control by default.
+No metadata is applied automatically.
 
-## Phase 7: Continuous inbox imports
+## v0.4 — Safe Staging Library
 
-- Scan a dedicated inbox for newly added music.
-- Reuse duplicate, matching, staging, and validation workflows.
-- Require explicit approval before promotion into an organized library.
+**Status:** Planned
 
-## Phase 8: Optional desktop app wrapper
+- Copy approved files into a separate staging library.
+- Validate source and staged files with checksums.
+- Verify copies before later operations can proceed.
+- Preserve the source library without destructive operations.
 
-- Package the local workflows behind a desktop interface.
-- Keep the command-line tool available and independently usable.
-- Preserve the same safety guarantees and review steps.
+## v0.5 — Organization Engine
+
+**Status:** Planned
+
+- Previewed rename plans.
+- Safe retagging of staged copies.
+- Artwork review and application.
+- Album and folder normalization.
+- Auditable operation logs and post-operation validation.
+
+Organization is limited to verified staging copies and requires explicit user
+approval.
+
+## v0.6 — HTML Dashboard
+
+**Status:** Planned
+
+Generate a local dashboard with:
+
+- `index.html`
+- `duplicates.html`
+- `albums.html`
+- `corrupt_files.html`
+- `missing_artwork.html`
+- `unmatched_tracks.html`
+
+Generated dashboards remain local and ignored by Git.
+
+## v0.7 — Inbox Automation
+
+**Status:** Planned
+
+- Detect newly added music in a dedicated inbox.
+- Run the established scan, analysis, matching, and staging pipeline.
+- Require approval before promotion into an organized library.
+- Record repeatable import history.
+
+## v1.0 — Stable Release
+
+**Status:** Planned
+
+- Stable command-line and application interfaces.
+- Documented migrations and compatibility guarantees.
+- End-to-end safety validation for supported workflows.
+- Reliable release, upgrade, and recovery documentation.

@@ -3,30 +3,73 @@
 Contributions that improve safety, portability, metadata handling, tests, or
 documentation are welcome.
 
-## Workflow
+## Development workflow
 
-1. Create a focused branch from the current default branch.
-2. Make one coherent change and keep unrelated edits out of the branch.
-3. Run the relevant checks locally.
-4. Open a pull request describing the behavior change and its safety impact.
-5. Address review feedback before merging.
+Never develop directly on `main`.
 
-Do not push directly to the default branch. Keep pull requests small enough to
-review and verify.
+1. Create or select a GitHub issue for the change.
+2. Associate the issue with the appropriate roadmap milestone.
+3. Create a focused branch from the latest `main`.
+4. Make one coherent change and keep unrelated edits out of the branch.
+5. Add tests or clear manual verification notes.
+6. Update documentation and `CHANGELOG.md` when behavior changes.
+7. Open a pull request that links the issue and describes the safety impact.
+8. Merge only after review and required checks pass.
+
+Use descriptive branch names such as:
+
+- `feature/musicbrainz`
+- `feature/html-dashboard`
+- `feature/duplicate-analysis`
+- `fix/unreadable-file-reporting`
+- `refactor/scanner-boundaries`
+
+Keep pull requests small enough to review and verify. Releases should be tagged
+and accompanied by changelog entries and GitHub release notes.
+
+## Application boundaries
+
+Reusable application logic belongs in `music_manager/`. The `scripts/`
+directory contains small compatibility launchers and should not become a second
+application layer.
+
+New features should respect existing module responsibilities or propose a clear
+architectural change in the pull request. Source-library behavior must remain
+read-only unless a roadmap milestone explicitly introduces a staged,
+user-approved operation.
 
 ## Verification
 
 Changes must include automated tests when practical. If automated coverage is
 not practical, include clear manual verification notes in the pull request.
 
-At minimum, run the syntax check used in continuous integration:
+At minimum, run the checks used in continuous integration:
 
 ```bash
-python -m py_compile scripts/scan_library.py
+python -m unittest discover -s tests -v
+python -m compileall -q music_manager scripts tests
 ```
 
 Scanner changes should also be tested against non-sensitive sample files that
 you created or are licensed to redistribute.
+
+## Recommended labels
+
+Use labels consistently so work can be discovered and included in milestones:
+
+- `bug`
+- `documentation`
+- `enhancement`
+- `good first issue`
+- `help wanted`
+- `performance`
+- `refactor`
+- `testing`
+- `scanner`
+- `duplicates`
+- `musicbrainz`
+- `dashboard`
+- `ui`
 
 ## Privacy and copyright
 
