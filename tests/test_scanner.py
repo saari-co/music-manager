@@ -79,6 +79,27 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(rows[0]["artist"], "Test Artist")
             self.assertEqual(rows[0]["extension"], ".mp3")
             self.assertEqual(rows[0]["status"], "ok")
+            self.assertEqual(rows[0]["path"], "Track.mp3")
+            self.assertNotIn(str(source), rows[0]["path"])
+
+    def test_scan_respects_source_relative_ignore_patterns(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory).resolve()
+            included = source / "Incoming"
+            ignored = source / "Music" / "Media.localized"
+            included.mkdir()
+            ignored.mkdir(parents=True)
+            (included / "Keep.mp3").touch()
+            (ignored / "Ignore.mp3").touch()
+
+            result = scan_library(
+                source,
+                metadata_loader=lambda path: _FakeAudio(),
+                ignore_patterns=("Music/Media.localized",),
+            )
+
+            self.assertEqual(len(result.records), 1)
+            self.assertEqual(result.records[0].library_source, "Incoming")
 
     def test_generated_wav_is_read_by_mutagen(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -105,13 +126,23 @@ class ScannerTests(unittest.TestCase):
             (source / "Unreadable.mp3").touch()
 
             def raise_metadata_error(path: Path) -> None:
-                raise ValueError("synthetic metadata failure")
+                raise ValueError(f"synthetic metadata failure at {path}")
 
             result = scan_library(source, metadata_loader=raise_metadata_error)
+            report_path = source / "reports" / "scan.csv"
+            write_csv_report(
+                result.records,
+                report_path,
+                source=source,
+            )
+            with report_path.open(encoding="utf-8", newline="") as report_file:
+                report_row = next(csv.DictReader(report_file))
 
             self.assertEqual(result.summary.file_error_count, 1)
             self.assertEqual(result.records[0].status, "error")
             self.assertIn("synthetic metadata failure", result.records[0].error)
+            self.assertNotIn(str(source), report_row["error"])
+            self.assertIn("Unreadable.mp3", report_row["error"])
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ change.
 
 ## Current capabilities
 
-Music Manager v0.1 can:
+The v0.1 scanner can:
 
 - recursively discover MP3, FLAC, M4A, AAC, and WAV files;
 - read common tags, bitrate, duration, file size, and folder depth with Mutagen;
@@ -55,11 +55,21 @@ Music Manager v0.1 can:
 - continue past unreadable files and record errors; and
 - write a local CSV inventory and print a scan summary.
 
+The v0.2 analysis layer can read that scan CSV and:
+
+- group duplicate candidates using normalized artist, title, and duration;
+- summarize bitrate ranges while separating unknown and lossless files;
+- identify readable files with missing metadata;
+- isolate corrupt or unreadable scan rows;
+- calculate metadata completeness percentages;
+- identify and summarize top-level library sources;
+- summarize folder depth, loose tracks, and extreme nesting; and
+- write focused CSV reports without opening any referenced music file.
+
 ## Planned capabilities
 
 Planned milestones add:
 
-- duplicate detection, quality scoring, corruption checks, and folder analysis;
 - MusicBrainz matching with confidence scores and metadata verification;
 - checksum-verified staging copies;
 - approved renaming, retagging, artwork, and album normalization in staging;
@@ -100,8 +110,61 @@ The compatibility launcher remains available:
 python scripts/scan_library.py --source /path/to/music
 ```
 
-Both commands write `reports/library_scan.csv`. Generated reports are ignored
-by Git because they can contain local paths and private library metadata.
+Both scan commands write `reports/library_scan.csv`.
+
+Analyze an existing scan:
+
+```bash
+python -m music_manager analyze \
+  --scan-report reports/library_scan.csv
+```
+
+Analysis writes:
+
+- `reports/library_analysis.csv`
+- `reports/duplicate_candidates.csv`
+- `reports/missing_metadata.csv`
+- `reports/corrupt_files.csv`
+- `reports/quality_summary.csv`
+- `reports/folder_summary.csv`
+
+Generated reports are ignored by Git because they can contain local paths and
+private library metadata.
+
+### Paths and local configuration
+
+Generated CSV paths are relative by default. Use absolute paths only when a
+local workflow specifically requires them:
+
+```bash
+python -m music_manager analyze \
+  --scan-report reports/library_scan.csv \
+  --path-mode absolute
+```
+
+Copy the example configuration to set persistent local defaults:
+
+```bash
+cp music-manager.example.yml music-manager.yml
+```
+
+```yaml
+path_mode: relative
+ignore:
+  - .DS_Store
+  # - Music/Media.localized
+```
+
+`path_mode` accepts `relative` or `absolute`. Ignore patterns are evaluated
+relative to the selected scan source and prune matching files or directories.
+The local `music-manager.yml` file is ignored by Git to prevent accidental
+publication of machine-specific rules.
+
+Library sources are inferred from top-level folders. Apple Music's
+`Music/Media.localized/Music` layout is recognized explicitly. In large
+libraries of at least 1,000 audio files, top-level groups below 1% of the
+library (bounded between 20 and 200 files) are combined into `Root Library` so
+artist folders do not appear as hundreds of separate sources.
 
 ## Development
 
@@ -126,9 +189,12 @@ branch, pull request, labeling, verification, and release workflow.
 
 ## Safety model
 
-Version 0.1 does not rename, move, copy, delete, retag, upload, or otherwise
-modify music files. It reads the selected source and writes only a local report.
-Unreadable files become report errors instead of terminating the scan.
+Scanning and analysis do not rename, move, copy, delete, retag, upload, or
+otherwise modify music files. The scanner reads the selected source and writes
+only a local report. Reports use relative paths by default. The analyzer reads
+that report without opening the music paths it contains, then writes local
+analysis reports. Unreadable files become report errors instead of terminating
+the workflow.
 
 Future capabilities that can write data must operate on a separate staging
 library, present a reviewable plan, require explicit approval, and verify their

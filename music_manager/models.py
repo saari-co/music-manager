@@ -4,10 +4,42 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 
 CsvValue = Union[str, int, float, bool]
+
+
+def _csv_text(value: Optional[str]) -> str:
+    """Normalize a possibly empty CSV cell."""
+    return value.strip() if value is not None else ""
+
+
+def _optional_int(value: Optional[str]) -> Optional[int]:
+    """Parse an optional integer from a CSV cell."""
+    if value is None or not value.strip():
+        return None
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+def _optional_float(value: Optional[str]) -> Optional[float]:
+    """Parse an optional float from a CSV cell."""
+    if value is None or not value.strip():
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _csv_bool(value: Optional[str]) -> bool:
+    """Parse a boolean emitted by ``csv.DictWriter``."""
+    if value is None:
+        return False
+    return value.strip().casefold() in {"1", "true", "yes"}
 
 
 @dataclass
@@ -17,6 +49,7 @@ class ScanRecord:
     path: Path
     extension: str
     file_type: str
+    library_source: str = ""
     file_size_bytes: Optional[int] = None
     folder_depth: int = 0
     artist: str = ""
@@ -31,12 +64,38 @@ class ScanRecord:
     status: str = "ok"
     error: str = ""
 
+    @classmethod
+    def from_csv_row(
+        cls, row: Mapping[str, Optional[str]]
+    ) -> "ScanRecord":
+        """Build a scan record without accessing the referenced file path."""
+        return cls(
+            path=Path(_csv_text(row.get("path"))),
+            extension=_csv_text(row.get("extension")).lower(),
+            file_type=_csv_text(row.get("file_type")).lower(),
+            library_source=_csv_text(row.get("library_source")),
+            file_size_bytes=_optional_int(row.get("file_size_bytes")),
+            folder_depth=_optional_int(row.get("folder_depth")) or 0,
+            artist=_csv_text(row.get("artist")),
+            title=_csv_text(row.get("title")),
+            album=_csv_text(row.get("album")),
+            date_year=_csv_text(row.get("date_year")),
+            track_number=_csv_text(row.get("track_number")),
+            bitrate_kbps=_optional_float(row.get("bitrate_kbps")),
+            duration_seconds=_optional_float(row.get("duration_seconds")),
+            is_loose_track=_csv_bool(row.get("is_loose_track")),
+            is_archive=_csv_bool(row.get("is_archive")),
+            status=_csv_text(row.get("status")) or "ok",
+            error=_csv_text(row.get("error")),
+        )
+
     def to_csv_row(self) -> Dict[str, CsvValue]:
         """Return a stable, serialization-ready representation."""
         return {
             "path": str(self.path),
             "extension": self.extension,
             "file_type": self.file_type,
+            "library_source": self.library_source,
             "file_size_bytes": self.file_size_bytes
             if self.file_size_bytes is not None
             else "",
@@ -97,3 +156,52 @@ class ScanResult:
         return ScanSummary.from_records(
             self.records, directory_error_count=len(self.directory_errors)
         )
+
+
+@dataclass(frozen=True)
+class DuplicateGroup:
+    """Tracks that share normalized identity and similar duration."""
+
+    group_id: str
+    records: Tuple[ScanRecord, ...]
+
+
+@dataclass(frozen=True)
+class MissingMetadataFinding:
+    """A readable audio record and the metadata fields it lacks."""
+
+    record: ScanRecord
+    missing_fields: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AnalysisSummary:
+    """Aggregate counts printed after library analysis."""
+
+    total_audio_files: int
+    duplicate_candidate_groups: int
+    duplicate_candidate_files: int
+    files_with_missing_metadata: int
+    corrupt_or_unreadable_files: int
+    low_bitrate_files: int
+    loose_tracks: int
+    deepest_folder_depth: int
+    extreme_nesting_files: int
+    library_source_count: int
+
+
+@dataclass
+class LibraryAnalysis:
+    """Read-only findings produced from an existing scan report."""
+
+    records: List[ScanRecord]
+    duplicate_groups: List[DuplicateGroup]
+    missing_metadata: List[MissingMetadataFinding]
+    corrupt_files: List[ScanRecord]
+    quality_buckets: Dict[str, int]
+    metadata_completeness: Dict[str, float]
+    library_source_counts: Dict[str, int]
+    folder_depth_counts: Dict[int, int]
+    deepest_files: List[ScanRecord]
+    extreme_nesting_files: List[ScanRecord]
+    summary: AnalysisSummary
