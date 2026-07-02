@@ -19,6 +19,10 @@ What problem or workflow limitation should this feature address?
 
 Describe the expected behavior and user interaction.
 
+## Roadmap fit
+
+Which documented milestone or application component should own this work?
+
 ## Safety and privacy
 
 Explain whether the feature reads, copies, renames, retags, deletes, or uploads
