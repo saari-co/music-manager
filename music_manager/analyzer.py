@@ -17,6 +17,7 @@ from music_manager.models import (
     MissingMetadataFinding,
     ScanRecord,
 )
+from music_manager.sources import consolidate_library_sources
 
 
 DEFAULT_DURATION_TOLERANCE = 3.0
@@ -129,6 +130,31 @@ def find_corrupt_files(records: Sequence[ScanRecord]) -> List[ScanRecord]:
     return [record for record in records if record.status.casefold() != "ok"]
 
 
+def summarize_metadata_completeness(
+    records: Sequence[ScanRecord],
+) -> Dict[str, float]:
+    """Calculate readable-audio metadata completeness percentages."""
+    readable_audio = [
+        record
+        for record in records
+        if record.file_type == "audio" and record.status.casefold() == "ok"
+    ]
+    if not readable_audio:
+        return {field_name: 0.0 for field_name in MISSING_METADATA_FIELDS}
+    return {
+        field_name: round(
+            100
+            * sum(
+                bool(getattr(record, field_name).strip())
+                for record in readable_audio
+            )
+            / len(readable_audio),
+            2,
+        )
+        for field_name in MISSING_METADATA_FIELDS
+    }
+
+
 def bitrate_bucket(record: ScanRecord) -> str:
     """Classify one audio record into a stable quality bucket."""
     if record.extension in LOSSLESS_OR_UNCOMPRESSED_EXTENSIONS:
@@ -206,6 +232,8 @@ def analyze_library(
     missing_metadata = find_missing_metadata(record_list)
     corrupt_files = find_corrupt_files(record_list)
     quality_buckets = summarize_quality(record_list)
+    metadata_completeness = summarize_metadata_completeness(record_list)
+    library_source_counts = consolidate_library_sources(record_list)
     depth_counts, deepest_files, extreme_files = summarize_folders(
         record_list, extreme_depth=extreme_depth
     )
@@ -223,6 +251,7 @@ def analyze_library(
         loose_tracks=sum(record.is_loose_track for record in audio_records),
         deepest_folder_depth=deepest_depth,
         extreme_nesting_files=len(extreme_files),
+        library_source_count=len(library_source_counts),
     )
     return LibraryAnalysis(
         records=record_list,
@@ -230,6 +259,8 @@ def analyze_library(
         missing_metadata=missing_metadata,
         corrupt_files=corrupt_files,
         quality_buckets=quality_buckets,
+        metadata_completeness=metadata_completeness,
+        library_source_counts=library_source_counts,
         folder_depth_counts=depth_counts,
         deepest_files=deepest_files,
         extreme_nesting_files=extreme_files,

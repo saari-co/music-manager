@@ -166,6 +166,13 @@ class AnalyzerTests(unittest.TestCase):
         self.assertEqual(self.analysis.folder_depth_counts[5], 2)
         self.assertEqual(len(self.analysis.deepest_files), 1)
         self.assertEqual(len(self.analysis.extreme_nesting_files), 3)
+        self.assertEqual(self.analysis.summary.library_source_count, 5)
+        self.assertEqual(self.analysis.library_source_counts["collection"], 3)
+
+    def test_metadata_completeness_percentages(self) -> None:
+        self.assertEqual(self.analysis.metadata_completeness["artist"], 100.0)
+        self.assertEqual(self.analysis.metadata_completeness["title"], 100.0)
+        self.assertEqual(self.analysis.metadata_completeness["album"], 85.71)
 
     def test_all_analysis_reports_are_written(self) -> None:
         output_directory = self.directory / "reports"
@@ -178,6 +185,14 @@ class AnalyzerTests(unittest.TestCase):
             duplicate_rows = list(csv.DictReader(report))
         self.assertEqual(len(duplicate_rows), 2)
         self.assertEqual(duplicate_rows[0]["duplicate_group_id"], "DUP-0001")
+        with paths["folders"].open(encoding="utf-8", newline="") as report:
+            folder_rows = list(csv.DictReader(report))
+        source_rows = [
+            row
+            for row in folder_rows
+            if row["record_type"] == "library_source_summary"
+        ]
+        self.assertEqual(len(source_rows), 5)
 
     def test_analysis_cli_writes_reports_and_summary(self) -> None:
         output_directory = self.directory / "cli-reports"

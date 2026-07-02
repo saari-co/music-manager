@@ -13,6 +13,7 @@ from music_manager.analyzer import (
     DEFAULT_EXTREME_DEPTH,
     analyze_library,
 )
+from music_manager.config import AppConfig, PATH_MODES, load_config
 from music_manager.models import LibraryAnalysis, ScanResult
 from music_manager.reports import (
     read_scan_report,
@@ -53,6 +54,24 @@ def _add_scan_arguments(
     )
 
 
+def _add_config_arguments(
+    parser: argparse.ArgumentParser, suppress_defaults: bool = False
+) -> None:
+    default = argparse.SUPPRESS if suppress_defaults else None
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=default,
+        help="YAML config path (default: ./music-manager.yml when present)",
+    )
+    parser.add_argument(
+        "--path-mode",
+        choices=sorted(PATH_MODES),
+        default=default,
+        help="path style for generated reports (default: relative)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the Music Manager argument parser."""
     parser = argparse.ArgumentParser(
@@ -61,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Music files are never renamed, moved, copied, deleted, or edited.",
     )
     _add_scan_arguments(parser, required=False)
+    _add_config_arguments(parser)
     subparsers = parser.add_subparsers(dest="command")
 
     scan_parser = subparsers.add_parser(
@@ -68,11 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a read-only CSV inventory of a music folder",
     )
     _add_scan_arguments(scan_parser, required=True)
+    _add_config_arguments(scan_parser, suppress_defaults=True)
 
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="analyze an existing scan CSV without accessing music files",
     )
+    _add_config_arguments(analyze_parser, suppress_defaults=True)
     analyze_parser.add_argument(
         "--scan-report",
         type=Path,
@@ -120,13 +142,15 @@ def _print_scan_summary(result: ScanResult, report_path: Path) -> None:
 
 
 def _print_analysis_summary(
-    analysis: LibraryAnalysis, scan_report: Path
+    analysis: LibraryAnalysis, scan_report: Path, path_mode: str
 ) -> None:
     """Print the required v0.2 terminal summary."""
     summary = analysis.summary
     print("Analysis complete")
     print(f"Scan report: {scan_report}")
     print(f"Reports directory: {DEFAULT_REPORT_DIRECTORY}")
+    print(f"Path mode: {path_mode}")
+    print(f"Library sources: {summary.library_source_count}")
     print(f"Total audio files: {summary.total_audio_files}")
     print(
         "Duplicate candidate groups: "
@@ -145,7 +169,9 @@ def _print_analysis_summary(
     print(f"Deepest folder depth: {summary.deepest_folder_depth}")
 
 
-def _run_scan(source_argument: str) -> int:
+def _run_scan(
+    source_argument: str, config: AppConfig, path_mode: str
+) -> int:
     """Run the existing read-only scanner."""
     source = Path(source_argument).expanduser().resolve()
 
@@ -163,11 +189,16 @@ def _run_scan(source_argument: str) -> int:
         )
         return 2
 
-    result = scan_library(source)
+    result = scan_library(source, ignore_patterns=config.ignore)
     _print_scan_warnings(result)
 
     try:
-        write_csv_report(result.records, DEFAULT_SCAN_REPORT_PATH)
+        write_csv_report(
+            result.records,
+            DEFAULT_SCAN_REPORT_PATH,
+            source=source,
+            path_mode=path_mode,
+        )
     except (OSError, csv.Error) as error:
         print(
             f"Error: could not write report {DEFAULT_SCAN_REPORT_PATH}: "
@@ -184,6 +215,7 @@ def _run_analysis(
     scan_report_argument: Path,
     duration_tolerance: float,
     extreme_depth: int,
+    path_mode: str,
 ) -> int:
     """Analyze one scan CSV and write local findings reports."""
     scan_report = scan_report_argument.expanduser().resolve()
@@ -195,7 +227,7 @@ def _run_analysis(
         return 2
 
     try:
-        records = read_scan_report(scan_report)
+        records = read_scan_report(scan_report, path_mode=path_mode)
         analysis = analyze_library(
             records,
             duration_tolerance=duration_tolerance,
@@ -209,7 +241,7 @@ def _run_analysis(
         )
         return 1
 
-    _print_analysis_summary(analysis, scan_report)
+    _print_analysis_summary(analysis, scan_report, path_mode)
     return 0
 
 
@@ -217,17 +249,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run the command-line application and return a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        config = load_config(args.config)
+    except (OSError, ValueError) as error:
+        print(f"Error: could not load configuration: {error}", file=sys.stderr)
+        return 2
+    path_mode = args.path_mode or config.path_mode
 
     if args.command == "analyze":
         return _run_analysis(
             args.scan_report,
             duration_tolerance=args.duration_tolerance,
             extreme_depth=args.extreme_depth,
+            path_mode=path_mode,
         )
     if args.command == "scan":
-        return _run_scan(args.source)
+        return _run_scan(args.source, config, path_mode)
     if args.source:
-        return _run_scan(args.source)
+        return _run_scan(args.source, config, path_mode)
 
     parser.error("provide --source for a scan or choose the analyze command")
     return 2

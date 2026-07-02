@@ -25,8 +25,12 @@ or explicit-approval principles.
 - Report duplicate candidates using normalized artist, title, and duration.
 - Summarize bitrate ranges, unknown bitrates, and lossless formats.
 - Report missing artist, title, album, year, and track number values.
+- Calculate per-field metadata completeness percentages.
 - Extract corrupt and unreadable scan rows into a focused report.
+- Detect library sources and summarize files by source.
 - Summarize folder depths, loose tracks, deepest files, and extreme nesting.
+- Use relative report paths by default with a configurable absolute mode.
+- Support YAML configuration for path mode and scan ignore patterns.
 - Cover analysis behavior with synthetic CSV fixtures.
 
 Planned outputs:

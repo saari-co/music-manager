@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import fnmatch
 import os
 from collections import Counter
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from music_manager.models import ScanRecord, ScanResult
+from music_manager.sources import (
+    consolidate_library_sources,
+    source_name_for_relative_path,
+)
 from music_manager.utils import clean_error, first_tag, folder_depth
 
 try:
@@ -33,7 +38,38 @@ def _load_metadata(path: Path) -> Any:
     return mutagen.File(path)
 
 
-def discover_files(source: Path) -> Tuple[List[Path], List[str]]:
+def library_source_for_path(path: Path, source: Path) -> str:
+    """Name the top-level collection containing a discovered file."""
+    relative_parts = path.relative_to(source).parts
+    return source_name_for_relative_path(
+        Path(*relative_parts),
+        fallback=source.name or "Source",
+    )
+
+
+def _is_ignored(
+    path: Path, source: Path, ignore_patterns: Sequence[str]
+) -> bool:
+    """Match a path against configured source-relative ignore patterns."""
+    relative_path = path.relative_to(source).as_posix()
+    for raw_pattern in ignore_patterns:
+        pattern = raw_pattern.replace("\\", "/").rstrip("/")
+        if pattern.startswith("./"):
+            pattern = pattern[2:]
+        if not pattern:
+            continue
+        if relative_path == pattern or relative_path.startswith(f"{pattern}/"):
+            return True
+        if fnmatch.fnmatchcase(relative_path, pattern):
+            return True
+        if "/" not in pattern and fnmatch.fnmatchcase(path.name, pattern):
+            return True
+    return False
+
+
+def discover_files(
+    source: Path, ignore_patterns: Sequence[str] = ()
+) -> Tuple[List[Path], List[str]]:
     """Find supported files recursively and collect inaccessible-directory errors."""
     paths: List[Path] = []
     directory_errors: List[str] = []
@@ -48,8 +84,19 @@ def discover_files(source: Path) -> Tuple[List[Path], List[str]]:
         followlinks=False,
     ):
         directories.sort(key=str.casefold)
+        directories[:] = [
+            directory
+            for directory in directories
+            if not _is_ignored(
+                Path(root) / directory,
+                source,
+                ignore_patterns,
+            )
+        ]
         for filename in sorted(filenames, key=str.casefold):
             path = Path(root) / filename
+            if _is_ignored(path, source, ignore_patterns):
+                continue
             if path.suffix.lower() in SUPPORTED_EXTENSIONS:
                 paths.append(path)
 
@@ -67,6 +114,7 @@ def scan_audio_file(
         path=path,
         extension=path.suffix.lower(),
         file_type="audio",
+        library_source=library_source_for_path(path, source),
         folder_depth=folder_depth(path, source),
         is_loose_track=is_loose_track,
     )
@@ -121,6 +169,7 @@ def scan_archive(path: Path, source: Path) -> ScanRecord:
         path=path,
         extension=path.suffix.lower(),
         file_type="archive",
+        library_source=library_source_for_path(path, source),
         folder_depth=folder_depth(path, source),
         is_archive=True,
     )
@@ -133,10 +182,14 @@ def scan_archive(path: Path, source: Path) -> ScanRecord:
 
 
 def scan_library(
-    source: Path, metadata_loader: Optional[MetadataLoader] = None
+    source: Path,
+    metadata_loader: Optional[MetadataLoader] = None,
+    ignore_patterns: Sequence[str] = (),
 ) -> ScanResult:
     """Scan a source directory without modifying any discovered file."""
-    paths, directory_errors = discover_files(source)
+    paths, directory_errors = discover_files(
+        source, ignore_patterns=ignore_patterns
+    )
     audio_files_per_folder = Counter(
         path.parent for path in paths if path.suffix.lower() in AUDIO_EXTENSIONS
     )
@@ -155,6 +208,7 @@ def scan_library(
                 )
             )
 
+    consolidate_library_sources(records)
     return ScanResult(
         source=source,
         records=records,

@@ -49,6 +49,7 @@ class ScanRecord:
     path: Path
     extension: str
     file_type: str
+    library_source: str = ""
     file_size_bytes: Optional[int] = None
     folder_depth: int = 0
     artist: str = ""
@@ -72,6 +73,7 @@ class ScanRecord:
             path=Path(_csv_text(row.get("path"))),
             extension=_csv_text(row.get("extension")).lower(),
             file_type=_csv_text(row.get("file_type")).lower(),
+            library_source=_csv_text(row.get("library_source")),
             file_size_bytes=_optional_int(row.get("file_size_bytes")),
             folder_depth=_optional_int(row.get("folder_depth")) or 0,
             artist=_csv_text(row.get("artist")),
@@ -93,6 +95,7 @@ class ScanRecord:
             "path": str(self.path),
             "extension": self.extension,
             "file_type": self.file_type,
+            "library_source": self.library_source,
             "file_size_bytes": self.file_size_bytes
             if self.file_size_bytes is not None
             else "",
@@ -184,6 +187,7 @@ class AnalysisSummary:
     loose_tracks: int
     deepest_folder_depth: int
     extreme_nesting_files: int
+    library_source_count: int
 
 
 @dataclass
@@ -195,6 +199,8 @@ class LibraryAnalysis:
     missing_metadata: List[MissingMetadataFinding]
     corrupt_files: List[ScanRecord]
     quality_buckets: Dict[str, int]
+    metadata_completeness: Dict[str, float]
+    library_source_counts: Dict[str, int]
     folder_depth_counts: Dict[int, int]
     deepest_files: List[ScanRecord]
     extreme_nesting_files: List[ScanRecord]

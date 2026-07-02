@@ -1,0 +1,11 @@
+# Copy this file to music-manager.yml for local configuration.
+#
+# Paths in generated CSV reports are relative by default to reduce accidental
+# disclosure of usernames and home-directory locations.
+path_mode: relative
+
+# Patterns are matched against paths relative to the selected scan source.
+# Add collection-specific exclusions locally when they should not be scanned.
+ignore:
+  - .DS_Store
+  # - Music/Media.localized
