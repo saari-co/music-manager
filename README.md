@@ -8,6 +8,8 @@ The project emphasizes safety, reproducibility, metadata accuracy, and staged
 workflows. Every operation should analyze first, report second, and modify only
 after explicit user approval.
 
+The current release is **v0.2.0**.
+
 ## Project vision
 
 Music Manager is intended to become a trusted local application for scanning,
@@ -86,9 +88,12 @@ See [ROADMAP.md](ROADMAP.md) for milestone scope.
 
 ## Installation
 
-Music Manager requires Python 3.9 or newer.
+Music Manager supports CPython 3.11, 3.12, 3.13, and 3.14. These versions are
+covered by the continuous integration test matrix. Confirm that `python3`
+resolves to one of these versions before creating the virtual environment:
 
 ```bash
+python3 --version
 git clone https://github.com/saari-co/music-manager.git
 cd music-manager
 python3 -m venv .venv
