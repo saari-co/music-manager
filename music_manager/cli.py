@@ -10,7 +10,6 @@ from typing import Optional, Sequence
 
 from music_manager.analyzer import (
     DEFAULT_DURATION_TOLERANCE,
-    DEFAULT_EXTREME_DEPTH,
     analyze_library,
 )
 from music_manager.config import AppConfig, PATH_MODES, load_config
@@ -31,14 +30,6 @@ DEFAULT_SCAN_REPORT_PATH = DEFAULT_REPORT_DIRECTORY / "library_scan.csv"
 def _non_negative_float(value: str) -> float:
     """Parse a non-negative CLI float."""
     parsed = float(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
-    return parsed
-
-
-def _non_negative_int(value: str) -> int:
-    """Parse a non-negative CLI integer."""
-    parsed = int(value)
     if parsed < 0:
         raise argparse.ArgumentTypeError("value must be non-negative")
     return parsed
@@ -107,12 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DURATION_TOLERANCE,
         help="duplicate duration tolerance in seconds (default: 3)",
     )
-    analyze_parser.add_argument(
-        "--extreme-depth",
-        type=_non_negative_int,
-        default=DEFAULT_EXTREME_DEPTH,
-        help="folder depth considered extreme (default: 5)",
-    )
     return parser
 
 
@@ -132,11 +117,10 @@ def _print_scan_summary(result: ScanResult, report_path: Path) -> None:
     """Print a concise scan summary."""
     summary = result.summary
     print("Scan complete")
-    print(f"Source: {result.source}")
+    print(f"Scan root: {result.source}")
     print(f"Report: {report_path}")
-    print(f"Audio files: {summary.audio_count}")
+    print(f"Root Library total: {summary.root_library_total}")
     print(f"Archives: {summary.archive_count}")
-    print(f"Loose tracks: {summary.loose_track_count}")
     print(f"File errors: {summary.file_error_count}")
     print(f"Directory errors: {summary.directory_error_count}")
 
@@ -150,11 +134,14 @@ def _print_analysis_summary(
     print(f"Scan report: {scan_report}")
     print(f"Reports directory: {DEFAULT_REPORT_DIRECTORY}")
     print(f"Path mode: {path_mode}")
-    print(f"Library sources: {summary.library_source_count}")
-    print(f"Total audio files: {summary.total_audio_files}")
+    print(f"Root Library total: {summary.root_library_total}")
     print(
         "Duplicate candidate groups: "
         f"{summary.duplicate_candidate_groups}"
+    )
+    print(
+        "Duplicate candidate files: "
+        f"{summary.duplicate_candidate_files}"
     )
     print(
         "Files with missing metadata: "
@@ -165,8 +152,6 @@ def _print_analysis_summary(
         f"{summary.corrupt_or_unreadable_files}"
     )
     print(f"Low bitrate files: {summary.low_bitrate_files}")
-    print(f"Loose tracks: {summary.loose_tracks}")
-    print(f"Deepest folder depth: {summary.deepest_folder_depth}")
 
 
 def _run_scan(
@@ -189,7 +174,10 @@ def _run_scan(
         )
         return 2
 
-    result = scan_library(source, ignore_patterns=config.ignore)
+    result = scan_library(
+        source,
+        ignore_patterns=config.ignore,
+    )
     _print_scan_warnings(result)
 
     try:
@@ -214,7 +202,6 @@ def _run_scan(
 def _run_analysis(
     scan_report_argument: Path,
     duration_tolerance: float,
-    extreme_depth: int,
     path_mode: str,
 ) -> int:
     """Analyze one scan CSV and write local findings reports."""
@@ -231,7 +218,6 @@ def _run_analysis(
         analysis = analyze_library(
             records,
             duration_tolerance=duration_tolerance,
-            extreme_depth=extreme_depth,
         )
         write_analysis_reports(analysis, DEFAULT_REPORT_DIRECTORY)
     except (OSError, csv.Error, ValueError) as error:
@@ -260,7 +246,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _run_analysis(
             args.scan_report,
             duration_tolerance=args.duration_tolerance,
-            extreme_depth=args.extreme_depth,
             path_mode=path_mode,
         )
     if args.command == "scan":

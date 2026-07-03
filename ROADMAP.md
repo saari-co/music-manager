@@ -13,7 +13,7 @@ or explicit-approval principles.
 **Status:** Released
 
 - Recursively discover supported audio files and ZIP archives.
-- Extract common metadata, bitrate, duration, file size, and folder depth.
+- Extract common metadata, bitrate, duration, and file size.
 - Write a CSV inventory without changing source files.
 - Continue past unreadable files and provide a terminal summary.
 
@@ -27,8 +27,8 @@ or explicit-approval principles.
 - Report missing artist, title, album, year, and track number values.
 - Calculate per-field metadata completeness percentages.
 - Extract corrupt and unreadable scan rows into a focused report.
-- Detect library sources and summarize files by source.
-- Summarize folder depths, loose tracks, deepest files, and extreme nesting.
+- Treat all supported audio files under one selected scan root as the Root
+  Library without classifying folders by name.
 - Use relative report paths by default with a configurable absolute mode.
 - Support YAML configuration for path mode and scan ignore patterns.
 - Cover analysis behavior with synthetic CSV fixtures.
@@ -40,7 +40,6 @@ Planned outputs:
 - `missing_metadata.csv`
 - `corrupt_files.csv`
 - `quality_summary.csv`
-- `folder_summary.csv`
 
 All findings remain read-only and report-driven. Duplicate reports identify
 candidates only and do not recommend deletion.

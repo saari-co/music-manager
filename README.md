@@ -49,22 +49,28 @@ change.
 The v0.1 scanner can:
 
 - recursively discover MP3, FLAC, M4A, AAC, and WAV files;
-- read common tags, bitrate, duration, file size, and folder depth with Mutagen;
-- identify likely loose tracks;
+- treat every supported audio file under the selected scan root as part of one
+  Root Library;
+- read common tags, bitrate, duration, and file size with Mutagen;
 - detect ZIP archives without opening or extracting them;
 - continue past unreadable files and record errors; and
 - write a local CSV inventory and print a scan summary.
 
 The v0.2 analysis layer can read that scan CSV and:
 
-- group duplicate candidates using normalized artist, title, and duration;
+- prioritize duplicate candidates using normalized artist, title, and
+  duration, including matches found in different folders;
 - summarize bitrate ranges while separating unknown and lossless files;
 - identify readable files with missing metadata;
 - isolate corrupt or unreadable scan rows;
 - calculate metadata completeness percentages;
-- identify and summarize top-level library sources;
-- summarize folder depth, loose tracks, and extreme nesting; and
 - write focused CSV reports without opening any referenced music file.
+
+The scanner does not classify folders by music app, artist folder, download
+folder, or any other source guess. Every supported audio file under the
+selected scan root is part of the Root Library. If similar or matching files
+appear in different folders, they are handled through duplicate detection
+only.
 
 ## Planned capabilities
 
@@ -126,10 +132,10 @@ Analysis writes:
 - `reports/missing_metadata.csv`
 - `reports/corrupt_files.csv`
 - `reports/quality_summary.csv`
-- `reports/folder_summary.csv`
 
-Generated reports are ignored by Git because they can contain local paths and
-private library metadata.
+The entire `reports/` directory is ignored by Git because generated reports can
+contain local paths and private library metadata. Sanitized, synthetic examples
+live under [`examples/`](examples/).
 
 ### Paths and local configuration
 
@@ -156,15 +162,13 @@ ignore:
 ```
 
 `path_mode` accepts `relative` or `absolute`. Ignore patterns are evaluated
-relative to the selected scan source and prune matching files or directories.
+relative to the selected scan root and prune matching files or directories.
 The local `music-manager.yml` file is ignored by Git to prevent accidental
 publication of machine-specific rules.
 
-Library sources are inferred from top-level folders. Apple Music's
-`Music/Media.localized/Music` layout is recognized explicitly. In large
-libraries of at least 1,000 audio files, top-level groups below 1% of the
-library (bounded between 20 and 200 files) are combined into `Root Library` so
-artist folders do not appear as hundreds of separate sources.
+`Root Library total` is the count of all supported audio files found anywhere
+under the selected scan root, including unreadable files. Folder placement
+does not create additional libraries or categories.
 
 ## Development
 
@@ -211,7 +215,7 @@ Security reporting guidance is available in [SECURITY.md](SECURITY.md).
 | Milestone | Focus |
 | --- | --- |
 | v0.1 | Read-only scanning and CSV reporting |
-| v0.2 | Duplicate, quality, corruption, and folder analysis |
+| v0.2 | Duplicate-first library audit, quality, and corruption analysis |
 | v0.3 | MusicBrainz matching and metadata confidence |
 | v0.4 | Checksum-verified staging library |
 | v0.5 | Safe organization engine for staged copies |

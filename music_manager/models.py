@@ -49,9 +49,7 @@ class ScanRecord:
     path: Path
     extension: str
     file_type: str
-    library_source: str = ""
     file_size_bytes: Optional[int] = None
-    folder_depth: int = 0
     artist: str = ""
     title: str = ""
     album: str = ""
@@ -59,7 +57,6 @@ class ScanRecord:
     track_number: str = ""
     bitrate_kbps: Optional[float] = None
     duration_seconds: Optional[float] = None
-    is_loose_track: bool = False
     is_archive: bool = False
     status: str = "ok"
     error: str = ""
@@ -73,9 +70,7 @@ class ScanRecord:
             path=Path(_csv_text(row.get("path"))),
             extension=_csv_text(row.get("extension")).lower(),
             file_type=_csv_text(row.get("file_type")).lower(),
-            library_source=_csv_text(row.get("library_source")),
             file_size_bytes=_optional_int(row.get("file_size_bytes")),
-            folder_depth=_optional_int(row.get("folder_depth")) or 0,
             artist=_csv_text(row.get("artist")),
             title=_csv_text(row.get("title")),
             album=_csv_text(row.get("album")),
@@ -83,7 +78,6 @@ class ScanRecord:
             track_number=_csv_text(row.get("track_number")),
             bitrate_kbps=_optional_float(row.get("bitrate_kbps")),
             duration_seconds=_optional_float(row.get("duration_seconds")),
-            is_loose_track=_csv_bool(row.get("is_loose_track")),
             is_archive=_csv_bool(row.get("is_archive")),
             status=_csv_text(row.get("status")) or "ok",
             error=_csv_text(row.get("error")),
@@ -95,11 +89,9 @@ class ScanRecord:
             "path": str(self.path),
             "extension": self.extension,
             "file_type": self.file_type,
-            "library_source": self.library_source,
             "file_size_bytes": self.file_size_bytes
             if self.file_size_bytes is not None
             else "",
-            "folder_depth": self.folder_depth,
             "artist": self.artist,
             "title": self.title,
             "album": self.album,
@@ -111,7 +103,6 @@ class ScanRecord:
             "duration_seconds": self.duration_seconds
             if self.duration_seconds is not None
             else "",
-            "is_loose_track": self.is_loose_track,
             "is_archive": self.is_archive,
             "status": self.status,
             "error": self.error,
@@ -122,11 +113,15 @@ class ScanRecord:
 class ScanSummary:
     """Aggregate counts shown after a scan."""
 
-    audio_count: int
+    root_library_total: int
     archive_count: int
-    loose_track_count: int
     file_error_count: int
     directory_error_count: int
+
+    @property
+    def audio_count(self) -> int:
+        """Compatibility alias for the Root Library track total."""
+        return self.root_library_total
 
     @classmethod
     def from_records(
@@ -134,9 +129,10 @@ class ScanSummary:
     ) -> "ScanSummary":
         """Calculate summary counts from scan records."""
         return cls(
-            audio_count=sum(record.file_type == "audio" for record in records),
+            root_library_total=sum(
+                record.file_type == "audio" for record in records
+            ),
             archive_count=sum(record.file_type == "archive" for record in records),
-            loose_track_count=sum(record.is_loose_track for record in records),
             file_error_count=sum(record.status == "error" for record in records),
             directory_error_count=directory_error_count,
         )
@@ -178,16 +174,17 @@ class MissingMetadataFinding:
 class AnalysisSummary:
     """Aggregate counts printed after library analysis."""
 
-    total_audio_files: int
+    root_library_total: int
     duplicate_candidate_groups: int
     duplicate_candidate_files: int
     files_with_missing_metadata: int
     corrupt_or_unreadable_files: int
     low_bitrate_files: int
-    loose_tracks: int
-    deepest_folder_depth: int
-    extreme_nesting_files: int
-    library_source_count: int
+
+    @property
+    def total_audio_files(self) -> int:
+        """Compatibility alias for the Root Library track total."""
+        return self.root_library_total
 
 
 @dataclass
@@ -200,8 +197,4 @@ class LibraryAnalysis:
     corrupt_files: List[ScanRecord]
     quality_buckets: Dict[str, int]
     metadata_completeness: Dict[str, float]
-    library_source_counts: Dict[str, int]
-    folder_depth_counts: Dict[int, int]
-    deepest_files: List[ScanRecord]
-    extreme_nesting_files: List[ScanRecord]
     summary: AnalysisSummary

@@ -13,12 +13,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added duplicate candidate grouping with normalized metadata and configurable
   duration tolerance.
 - Added focused reports for missing metadata, corrupt files, bitrate quality,
-  folder depth, loose tracks, and extreme nesting.
-- Added library-source detection and source-level file counts.
+  and duplicate candidates.
 - Added metadata completeness percentages for dashboard-ready summaries.
 - Added YAML configuration for report path mode and scan ignore patterns.
 - Added relative report paths by default with an explicit absolute-path mode.
 - Added synthetic CSV tests for the complete analysis layer.
+
+### Changed
+
+- Simplified standard output around one Root Library containing every supported
+  audio file under the selected scan root.
+- Removed source classification, loose-track reporting, and folder summaries
+  from standard reports.
+- Ignored the complete generated `reports/` directory and kept only sanitized
+  report examples under `examples/`.
 
 ### Security
 

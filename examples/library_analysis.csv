@@ -1,0 +1,12 @@
+metric,value
+root_library_total,4
+duplicate_candidate_groups,1
+duplicate_candidate_files,2
+files_with_missing_metadata,1
+corrupt_or_unreadable_files,1
+low_bitrate_files,1
+artist_complete_percent,75.0
+title_complete_percent,75.0
+album_complete_percent,75.0
+date_year_complete_percent,50.0
+track_number_complete_percent,50.0

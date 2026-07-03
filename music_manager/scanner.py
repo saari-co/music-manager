@@ -4,16 +4,11 @@ from __future__ import annotations
 
 import fnmatch
 import os
-from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from music_manager.models import ScanRecord, ScanResult
-from music_manager.sources import (
-    consolidate_library_sources,
-    source_name_for_relative_path,
-)
-from music_manager.utils import clean_error, first_tag, folder_depth
+from music_manager.utils import clean_error, first_tag
 
 try:
     import mutagen
@@ -36,15 +31,6 @@ def _load_metadata(path: Path) -> Any:
     if mutagen is None:
         raise RuntimeError("Mutagen is not installed")
     return mutagen.File(path)
-
-
-def library_source_for_path(path: Path, source: Path) -> str:
-    """Name the top-level collection containing a discovered file."""
-    relative_parts = path.relative_to(source).parts
-    return source_name_for_relative_path(
-        Path(*relative_parts),
-        fallback=source.name or "Source",
-    )
 
 
 def _is_ignored(
@@ -105,8 +91,6 @@ def discover_files(
 
 def scan_audio_file(
     path: Path,
-    source: Path,
-    is_loose_track: bool,
     metadata_loader: Optional[MetadataLoader] = None,
 ) -> ScanRecord:
     """Read one audio file and return an error record if reading fails."""
@@ -114,9 +98,6 @@ def scan_audio_file(
         path=path,
         extension=path.suffix.lower(),
         file_type="audio",
-        library_source=library_source_for_path(path, source),
-        folder_depth=folder_depth(path, source),
-        is_loose_track=is_loose_track,
     )
 
     try:
@@ -163,14 +144,12 @@ def scan_audio_file(
     return record
 
 
-def scan_archive(path: Path, source: Path) -> ScanRecord:
+def scan_archive(path: Path) -> ScanRecord:
     """Record a ZIP archive without opening or extracting it."""
     record = ScanRecord(
         path=path,
         extension=path.suffix.lower(),
         file_type="archive",
-        library_source=library_source_for_path(path, source),
-        folder_depth=folder_depth(path, source),
         is_archive=True,
     )
     try:
@@ -190,25 +169,19 @@ def scan_library(
     paths, directory_errors = discover_files(
         source, ignore_patterns=ignore_patterns
     )
-    audio_files_per_folder = Counter(
-        path.parent for path in paths if path.suffix.lower() in AUDIO_EXTENSIONS
-    )
     records: List[ScanRecord] = []
 
     for path in paths:
         if path.suffix.lower() == ".zip":
-            records.append(scan_archive(path, source))
+            records.append(scan_archive(path))
         else:
             records.append(
                 scan_audio_file(
                     path,
-                    source,
-                    is_loose_track=audio_files_per_folder[path.parent] == 1,
                     metadata_loader=metadata_loader,
                 )
             )
 
-    consolidate_library_sources(records)
     return ScanResult(
         source=source,
         records=records,
