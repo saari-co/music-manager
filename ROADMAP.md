@@ -19,7 +19,7 @@ or explicit-approval principles.
 
 ## v0.2 — Library Analysis
 
-**Status:** In development
+**Status:** Released
 
 - Analyze an existing `library_scan.csv` without accessing music files.
 - Report duplicate candidates using normalized artist, title, and duration.

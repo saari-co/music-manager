@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-02
+
 ### Added
 
 - Added an `analyze` CLI command for existing library scan CSV files.
@@ -18,6 +20,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added YAML configuration for report path mode and scan ignore patterns.
 - Added relative report paths by default with an explicit absolute-path mode.
 - Added synthetic CSV tests for the complete analysis layer.
+- Added an end-to-end synthetic scan and analysis workflow test.
+- Added CI coverage for supported CPython versions 3.11 through 3.14.
 
 ### Changed
 
