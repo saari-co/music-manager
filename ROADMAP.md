@@ -33,7 +33,7 @@ or explicit-approval principles.
 - Support YAML configuration for path mode and scan ignore patterns.
 - Cover analysis behavior with synthetic CSV fixtures.
 
-Planned outputs:
+Report outputs:
 
 - `library_analysis.csv`
 - `duplicate_candidates.csv`
@@ -44,18 +44,62 @@ Planned outputs:
 All findings remain read-only and report-driven. Duplicate reports identify
 candidates only and do not recommend deletion.
 
-## v0.3 — MusicBrainz Integration
+## v0.2.1 — Foundation Cleanup
 
 **Status:** Planned
 
-- Album and recording matching.
-- Confidence scoring for candidate matches.
-- Metadata verification and ambiguity reporting.
-- User-controlled, privacy-conscious external lookups.
+- Add `pyproject.toml`.
+- Add an installable console command.
+- Add development dependencies for testing and linting.
+- Reject unknown configuration keys.
+- Update stale documentation.
+- Add regression tests for current scan and analysis behavior.
+
+This patch does not add network access, staging, retagging, renaming, or
+destructive behavior.
+
+## v0.3 — Durable Scan and Report Contract
+
+**Status:** Planned
+
+- Write a short format decision document before implementation.
+- Add a versioned `scan_manifest.json`.
+- Add a structured `scan_errors.csv`.
+- Write each run to a dedicated `reports/<scan-id>/` directory.
+- Define manifest completion states for complete, incomplete, and failed runs.
+- Record the report schema version, application version, and scan ID.
+- Record a sanitized configuration snapshot.
+- Define a root-path privacy policy that keeps portable reports free of
+  private absolute paths.
+- Define a relative-path contract for scan and analysis artifacts.
+- Document and support legacy unversioned report handling.
+- Define symlink behavior, including safe defaults and persisted findings.
+- Expand metadata fields before external matching.
+- Define `file_record_id` semantics for stable report-row identity.
+- Define `file_fingerprint` semantics for file change detection.
+- Enforce strict CSV validation according to schema compatibility rules.
+- Add regression, compatibility, failure, and scale tests.
+
+All behavior remains local-first, read-only, and report-driven.
+
+## v0.4 — MusicBrainz Integration
+
+**Status:** Planned
+
+- Require explicit opt-in before any network access.
+- Send an identifiable application User-Agent.
+- Use a cached MusicBrainz client.
+- Apply deterministic rate limiting.
+- Implement retry and backoff behavior.
+- Produce album and recording candidates.
+- Record evidence used to evaluate each candidate.
+- Provide explainable confidence scoring.
+- Report ambiguous and unmatched results.
+- Cover matching behavior with fully mocked offline tests.
 
 No metadata is applied automatically.
 
-## v0.4 — Safe Staging Library
+## v0.5 — Safe Staging Library
 
 **Status:** Planned
 
@@ -64,7 +108,7 @@ No metadata is applied automatically.
 - Verify copies before later operations can proceed.
 - Preserve the source library without destructive operations.
 
-## v0.5 — Organization Engine
+## v0.6 — Organization Engine
 
 **Status:** Planned
 
@@ -77,7 +121,7 @@ No metadata is applied automatically.
 Organization is limited to verified staging copies and requires explicit user
 approval.
 
-## v0.6 — HTML Dashboard
+## v0.7 — HTML Dashboard
 
 **Status:** Planned
 
@@ -92,7 +136,7 @@ Generate a local dashboard with:
 
 Generated dashboards remain local and ignored by Git.
 
-## v0.7 — Inbox Automation
+## v0.8 — Inbox Automation
 
 **Status:** Planned
 
