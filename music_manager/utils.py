@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Iterable
 
 
@@ -12,11 +11,6 @@ def clean_error(error: BaseException) -> str:
     if message:
         return f"{type(error).__name__}: {message}"
     return type(error).__name__
-
-
-def folder_depth(path: Path, source: Path) -> int:
-    """Count directories between a source and a file's immediate parent."""
-    return max(len(path.relative_to(source).parts) - 1, 0)
 
 
 def first_tag(tags: Any, keys: Iterable[str]) -> str:

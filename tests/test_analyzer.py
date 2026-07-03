@@ -27,7 +27,6 @@ def _scan_row(path: str, **overrides: str) -> Dict[str, str]:
         "extension": ".mp3",
         "file_type": "audio",
         "file_size_bytes": "1000",
-        "folder_depth": "2",
         "artist": "Example Artist",
         "title": "Example Title",
         "album": "Example Album",
@@ -35,7 +34,6 @@ def _scan_row(path: str, **overrides: str) -> Dict[str, str]:
         "track_number": "1",
         "bitrate_kbps": "192",
         "duration_seconds": "200",
-        "is_loose_track": "False",
         "is_archive": "False",
         "status": "ok",
         "error": "",
@@ -78,13 +76,11 @@ class AnalyzerTests(unittest.TestCase):
                 "deep/library/Artist/Album/04.mp3",
                 title="Quality 280",
                 bitrate_kbps="280",
-                folder_depth="5",
             ),
             _scan_row(
                 "deep/library/Artist/Album/05.mp3",
                 title="Quality 320",
                 bitrate_kbps="320",
-                folder_depth="5",
             ),
             _scan_row(
                 "Loose Track.m4a",
@@ -94,15 +90,12 @@ class AnalyzerTests(unittest.TestCase):
                 date_year="",
                 track_number="",
                 bitrate_kbps="",
-                folder_depth="0",
-                is_loose_track="True",
             ),
             _scan_row(
                 "collection/Lossless.flac",
                 extension=".flac",
                 title="Lossless",
                 bitrate_kbps="900",
-                folder_depth="1",
             ),
             _scan_row(
                 "too/deep/to/be/read/Unreadable.mp3",
@@ -112,7 +105,6 @@ class AnalyzerTests(unittest.TestCase):
                 date_year="",
                 track_number="",
                 bitrate_kbps="",
-                folder_depth="6",
                 status="error",
                 error="ValueError: synthetic corruption",
             ),
@@ -160,14 +152,9 @@ class AnalyzerTests(unittest.TestCase):
         )
         self.assertEqual(self.analysis.summary.low_bitrate_files, 1)
 
-    def test_folder_depth_summary(self) -> None:
-        self.assertEqual(self.analysis.summary.loose_tracks, 1)
-        self.assertEqual(self.analysis.summary.deepest_folder_depth, 6)
-        self.assertEqual(self.analysis.folder_depth_counts[5], 2)
-        self.assertEqual(len(self.analysis.deepest_files), 1)
-        self.assertEqual(len(self.analysis.extreme_nesting_files), 3)
-        self.assertEqual(self.analysis.summary.library_source_count, 5)
-        self.assertEqual(self.analysis.library_source_counts["collection"], 3)
+    def test_root_library_total_includes_every_audio_row(self) -> None:
+        self.assertEqual(self.analysis.summary.root_library_total, 8)
+        self.assertEqual(self.analysis.summary.total_audio_files, 8)
 
     def test_metadata_completeness_percentages(self) -> None:
         self.assertEqual(self.analysis.metadata_completeness["artist"], 100.0)
@@ -185,14 +172,24 @@ class AnalyzerTests(unittest.TestCase):
             duplicate_rows = list(csv.DictReader(report))
         self.assertEqual(len(duplicate_rows), 2)
         self.assertEqual(duplicate_rows[0]["duplicate_group_id"], "DUP-0001")
-        with paths["folders"].open(encoding="utf-8", newline="") as report:
-            folder_rows = list(csv.DictReader(report))
-        source_rows = [
-            row
-            for row in folder_rows
-            if row["record_type"] == "library_source_summary"
-        ]
-        self.assertEqual(len(source_rows), 5)
+        self.assertNotIn("library_source", duplicate_rows[0])
+        self.assertNotIn("folders", paths)
+        self.assertFalse((output_directory / "folder_summary.csv").exists())
+        for report_path in paths.values():
+            report_text = report_path.read_text(encoding="utf-8")
+            self.assertNotIn("library_source_summary", report_text)
+            self.assertNotIn("loose_track_summary", report_text)
+            with report_path.open(encoding="utf-8", newline="") as report:
+                fieldnames = csv.DictReader(report).fieldnames or []
+            self.assertNotIn("library_source", fieldnames)
+            self.assertNotIn("is_loose_track", fieldnames)
+
+        with paths["analysis"].open(encoding="utf-8", newline="") as report:
+            analysis_rows = list(csv.DictReader(report))
+        metrics = {row["metric"] for row in analysis_rows}
+        self.assertIn("root_library_total", metrics)
+        self.assertNotIn("library_sources", metrics)
+        self.assertNotIn("loose_tracks", metrics)
 
     def test_analysis_cli_writes_reports_and_summary(self) -> None:
         output_directory = self.directory / "cli-reports"
@@ -207,7 +204,11 @@ class AnalyzerTests(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("Root Library total: 8", stdout.getvalue())
         self.assertIn("Duplicate candidate groups: 1", stdout.getvalue())
+        self.assertIn("Duplicate candidate files: 2", stdout.getvalue())
+        self.assertNotIn("Library sources", stdout.getvalue())
+        self.assertNotIn("Loose tracks", stdout.getvalue())
         for filename in ANALYSIS_REPORT_FILENAMES.values():
             self.assertTrue((output_directory / filename).is_file())
 

@@ -33,7 +33,6 @@ class ConfigTests(unittest.TestCase):
                 config.ignore,
                 ("Music/Media.localized", ".DS_Store"),
             )
-
     def test_rejects_invalid_path_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_path = Path(temporary_directory) / "config.yml"
@@ -63,13 +62,8 @@ class ConfigTests(unittest.TestCase):
             absolute_records = read_scan_report(
                 report_path, path_mode="absolute"
             )
-
             self.assertTrue(
                 all(not record.path.is_absolute() for record in relative_records)
-            )
-            self.assertEqual(
-                {record.library_source for record in relative_records},
-                {"Apple Music", "Incoming"},
             )
             self.assertTrue(
                 all(record.path.is_absolute() for record in absolute_records)
@@ -82,7 +76,6 @@ class ConfigTests(unittest.TestCase):
                 "Incoming/Album/01.mp3",
                 relative_records[1].error,
             )
-
     @staticmethod
     def _legacy_row(path: Path) -> dict:
         return {

@@ -13,8 +13,7 @@ dist/
 .DS_Store
 music-manager.yml
 
-reports/*.csv
-reports/*.html
+/reports/
 work/
 staging-library/
 

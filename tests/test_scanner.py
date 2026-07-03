@@ -45,9 +45,9 @@ class ScannerTests(unittest.TestCase):
             result = scan_library(source, metadata_loader=lambda path: _FakeAudio())
 
             self.assertEqual(len(result.records), 4)
+            self.assertEqual(result.summary.root_library_total, 3)
             self.assertEqual(result.summary.audio_count, 3)
             self.assertEqual(result.summary.archive_count, 1)
-            self.assertEqual(result.summary.loose_track_count, 1)
             self.assertEqual(result.summary.file_error_count, 0)
 
             audio_records = [
@@ -81,6 +81,9 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(rows[0]["status"], "ok")
             self.assertEqual(rows[0]["path"], "Track.mp3")
             self.assertNotIn(str(source), rows[0]["path"])
+            self.assertNotIn("library_source", rows[0])
+            self.assertNotIn("is_loose_track", rows[0])
+            self.assertNotIn("folder_depth", rows[0])
 
     def test_scan_respects_source_relative_ignore_patterns(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -99,7 +102,28 @@ class ScannerTests(unittest.TestCase):
             )
 
             self.assertEqual(len(result.records), 1)
-            self.assertEqual(result.records[0].library_source, "Incoming")
+            self.assertEqual(result.summary.root_library_total, 1)
+
+    def test_app_named_folders_are_one_root_library(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory).resolve()
+            for folder_name in ("Apple Music", "iTunes", "Plex", "Incoming"):
+                folder = source / folder_name
+                folder.mkdir()
+                (folder / f"{folder_name}.mp3").touch()
+
+            result = scan_library(
+                source,
+                metadata_loader=lambda path: _FakeAudio(),
+            )
+
+            self.assertEqual(result.summary.root_library_total, 4)
+            self.assertTrue(
+                all(
+                    not hasattr(record, "library_source")
+                    for record in result.records
+                )
+            )
 
     def test_generated_wav_is_read_by_mutagen(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
