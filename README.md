@@ -98,7 +98,7 @@ git clone https://github.com/saari-co/music-manager.git
 cd music-manager
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install --editable .
 ```
 
 On Windows PowerShell, activate the environment with:
@@ -110,6 +110,12 @@ On Windows PowerShell, activate the environment with:
 ## Quick start
 
 Run the application against a local source folder:
+
+```bash
+music-manager --source /path/to/music
+```
+
+The existing module entry point remains available:
 
 ```bash
 python -m music_manager --source /path/to/music
@@ -126,7 +132,7 @@ Both scan commands write `reports/library_scan.csv`.
 Analyze an existing scan:
 
 ```bash
-python -m music_manager analyze \
+music-manager analyze \
   --scan-report reports/library_scan.csv
 ```
 
@@ -148,7 +154,7 @@ Generated CSV paths are relative by default. Use absolute paths only when a
 local workflow specifically requires them:
 
 ```bash
-python -m music_manager analyze \
+music-manager analyze \
   --scan-report reports/library_scan.csv \
   --path-mode absolute
 ```

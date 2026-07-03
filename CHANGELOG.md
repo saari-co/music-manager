@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Added standard Python packaging metadata and an installable `music-manager`
+  console command while preserving the existing module and compatibility
+  entry points.
+
 ## [0.2.0] - 2026-07-02
 
 ### Added
