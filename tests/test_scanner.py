@@ -258,7 +258,9 @@ class ScannerTests(unittest.TestCase):
                 expected_links,
             )
 
-    def test_lstat_symlink_check_prevents_file_link_race(self) -> None:
+    def test_lstat_symlink_check_catches_file_link_missed_by_discovery(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()
             source = root / "source"
