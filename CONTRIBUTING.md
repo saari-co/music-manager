@@ -47,8 +47,8 @@ application layer.
 
 New features should respect existing module responsibilities or propose a clear
 architectural change in the pull request. Source-library behavior must remain
-read-only unless a roadmap milestone explicitly introduces a staged,
-user-approved operation.
+read-only. Any future write operation must be limited to a separate staging
+library, present a reviewable plan, and require explicit user approval.
 
 ## Verification
 

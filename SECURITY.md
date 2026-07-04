@@ -2,9 +2,17 @@
 
 ## Local-first design
 
-Music Manager is a local-first application. Version 0.1.0 reads a user-selected
-folder and writes a CSV report locally. It does not upload audio files or report
-data.
+Music Manager is a local-first application. The current scan workflow reads a
+user-selected folder and writes a CSV inventory locally. Analysis reads that
+inventory and writes local reports without reopening the referenced music
+files. Neither workflow uploads audio files or report data, and neither
+workflow renames, moves, copies, deletes, or retags music files.
+
+MusicBrainz integration, staging, retagging, organization, dashboards, and
+inbox automation are planned features, not current capabilities. Future network
+access must require explicit opt-in. Future write operations must be limited to
+a separate staging library, show a reviewable plan, and require explicit user
+approval.
 
 Library reports can still contain sensitive information, including personal
 directory names, filenames, and listening-library metadata. Do not upload
