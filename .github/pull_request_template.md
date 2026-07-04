@@ -15,6 +15,7 @@ Link the issue this pull request resolves and name its roadmap milestone.
 List automated checks and manual verification performed.
 
 ```text
+ruff check .
 python -m unittest discover -s tests -v
 python -m compileall -q music_manager scripts tests
 ```
