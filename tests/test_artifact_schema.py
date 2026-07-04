@@ -203,6 +203,24 @@ class SchemaOneModelTests(unittest.TestCase):
             ):
                 load_scan_manifest(manifest_path)
 
+    def test_manifest_rejects_completion_before_start(self) -> None:
+        invalid = _manifest_data()
+        invalid["started_at"] = "2026-07-04T16:00:10Z"
+        invalid["completed_at"] = "2026-07-04T16:00:01Z"
+
+        with self.assertRaisesRegex(
+            ArtifactValidationError,
+            "greater than or equal to started_at",
+        ):
+            ScanManifest.from_dict(invalid)
+
+        equal = _manifest_data()
+        equal["completed_at"] = equal["started_at"]
+        self.assertEqual(
+            ScanManifest.from_dict(equal).completed_at,
+            equal["started_at"],
+        )
+
     def test_derived_artifact_requires_sanitized_configuration(self) -> None:
         data = _manifest_data()
         data["artifacts"]["library_analysis"] = {
@@ -485,6 +503,40 @@ class ArtifactSetValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 ArtifactValidationError,
                 "finding severities",
+            ):
+                validate_artifact_set(directory / "scan_manifest.json")
+
+    def test_ok_record_cannot_have_linked_error_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory) / "run"
+            shutil.copytree(VALID_FIXTURES, directory)
+            library_row = _library_row()
+            error_path = directory / "scan_errors.csv"
+            error_row = {
+                "scan_id": library_row["scan_id"],
+                "file_record_id": library_row["file_record_id"],
+                "path": library_row["path"],
+                "stage": "metadata",
+                "severity": "error",
+                "error_code": "metadata_read_failed",
+                "message": "Synthetic metadata failure",
+            }
+            with error_path.open("w", encoding="utf-8", newline="") as report:
+                writer = csv.DictWriter(report, fieldnames=SCAN_ERRORS_HEADER)
+                writer.writeheader()
+                writer.writerow(error_row)
+
+            manifest = _manifest_data()
+            manifest["state"] = "incomplete"
+            manifest["counts"]["info_findings"] = 0
+            manifest["counts"]["error_findings"] = 1
+            manifest["counts"]["skipped_symlinks"] = 0
+            _replace_artifact_digest(directory, manifest, "scan_errors")
+            _write_manifest(directory, manifest)
+
+            with self.assertRaisesRegex(
+                ArtifactValidationError,
+                "must be error when linked",
             ):
                 validate_artifact_set(directory / "scan_manifest.json")
 

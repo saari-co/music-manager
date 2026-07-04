@@ -111,7 +111,7 @@ _ARTIFACT_FIELDS = (
 _SEMVER_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _RFC3339_UTC_RE = re.compile(
     r"^([0-9]{4}-[0-9]{2}-[0-9]{2}T"
-    r"[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.[0-9]+)?Z$"
+    r"[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]+))?Z$"
 )
 _SIGNED_INTEGER_RE = re.compile(r"^-?(?:0|[1-9][0-9]*)$")
 _UNSIGNED_INTEGER_RE = re.compile(r"^(?:0|[1-9][0-9]*)$")
@@ -224,6 +224,15 @@ def _parse_rfc3339_utc(value: Any, location: str) -> str:
     except ValueError as error:
         raise _error(location, "contains an invalid date or time") from error
     return text
+
+
+def _rfc3339_order_key(value: str) -> tuple[datetime, Decimal]:
+    match = _RFC3339_UTC_RE.fullmatch(value)
+    if match is None:
+        raise AssertionError("timestamp must be validated before comparison")
+    instant = datetime.fromisoformat(f"{match.group(1)}+00:00")
+    fraction = Decimal(f"0.{match.group(2) or '0'}")
+    return instant, fraction
 
 
 def _parse_sha256(value: Any, location: str) -> str:
@@ -625,6 +634,13 @@ class ScanManifest:
             raise _error(
                 f"{location}.completed_at",
                 "must be set for a final state",
+            )
+        if completed_at is not None and _rfc3339_order_key(
+            completed_at
+        ) < _rfc3339_order_key(started_at):
+            raise _error(
+                f"{location}.completed_at",
+                "must be greater than or equal to started_at",
             )
 
         artifact_values = _expect_mapping(data["artifacts"], f"{location}.artifacts")
@@ -1374,6 +1390,13 @@ def _validate_primary_relationships(
                 raise _error(
                     f"library_scan.csv row {row_number}.record_status",
                     "error rows require a linked error or fatal finding",
+                )
+            if record.record_status == "ok" and any(
+                finding.severity in {"error", "fatal"} for finding in linked
+            ):
+                raise _error(
+                    f"library_scan.csv row {row_number}.record_status",
+                    "must be error when linked to an error or fatal finding",
                 )
             if record.file_size_bytes is None and not any(
                 finding.stage == "stat" and finding.severity in {"error", "fatal"}
