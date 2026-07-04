@@ -46,7 +46,7 @@ candidates only and do not recommend deletion.
 
 ## v0.2.1 — Foundation Cleanup
 
-**Status:** In progress (unreleased)
+**Status:** Released
 
 - Standardize packaging in `pyproject.toml`.
 - Provide an installable `music-manager` console command.

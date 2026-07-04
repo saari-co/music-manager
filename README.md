@@ -8,9 +8,7 @@ The project emphasizes safety, reproducibility, metadata accuracy, and staged
 workflows. Current operations analyze and report only. Any future write
 operation must present a reviewable plan and require explicit user approval.
 
-The current release is **v0.2.0**. The repository also contains the unreleased
-v0.2.1 foundation work, including standard Python packaging and the installable
-`music-manager` console command.
+The current release is **v0.2.1**.
 
 ## Project vision
 
@@ -236,7 +234,7 @@ Security reporting guidance is available in [SECURITY.md](SECURITY.md).
 | --- | --- | --- |
 | v0.1 | Released | Read-only scanning and CSV reporting |
 | v0.2 | Released | Duplicate-first library audit, quality, and corruption analysis |
-| v0.2.1 | Unreleased | Packaging, CLI, development, configuration, documentation, and test cleanup |
+| v0.2.1 | Released | Packaging, CLI, development, configuration, documentation, and test cleanup |
 | v0.3 | Planned | Durable scan and report contract |
 | v0.4 | Planned | Opt-in MusicBrainz matching and metadata confidence |
 | v0.5 | Planned | Checksum-verified staging library |

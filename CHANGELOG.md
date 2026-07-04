@@ -7,11 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-04
+
 ### Added
 
-- Added standard Python packaging metadata and an installable `music-manager`
-  console command while preserving the existing module and compatibility
-  entry points.
+- Added `pyproject.toml` packaging support.
+- Added the `music-manager` console command.
+- Added development linting support with Ruff.
+- Added release regression tests for CLI and current behavior.
+
+### Changed
+
+- Updated stale documentation to match the current released behavior and
+  roadmap.
+
+### Fixed
+
+- Unknown YAML configuration keys now fail clearly instead of being silently
+  ignored.
 
 ## [0.2.0] - 2026-07-02
 
