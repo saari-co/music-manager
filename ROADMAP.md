@@ -46,14 +46,14 @@ candidates only and do not recommend deletion.
 
 ## v0.2.1 — Foundation Cleanup
 
-**Status:** Planned
+**Status:** In progress (unreleased)
 
-- Add `pyproject.toml`.
-- Add an installable console command.
-- Add development dependencies for testing and linting.
+- Standardize packaging in `pyproject.toml`.
+- Provide an installable `music-manager` console command.
+- Provide development dependencies for testing and linting.
 - Reject unknown configuration keys.
-- Update stale documentation.
-- Add regression tests for current scan and analysis behavior.
+- Correct stale documentation.
+- Strengthen regression tests for current scan and analysis behavior.
 
 This patch does not add network access, staging, retagging, renaming, or
 destructive behavior.

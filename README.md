@@ -1,24 +1,28 @@
 # Music Manager
 
-Music Manager is an open source application for transforming large,
-inconsistent music collections into verified, organized libraries without
-risking the original files.
+Music Manager is an open source, local-first command-line application for
+inventorying and analyzing large, inconsistent music collections without
+modifying the original files.
 
 The project emphasizes safety, reproducibility, metadata accuracy, and staged
-workflows. Every operation should analyze first, report second, and modify only
-after explicit user approval.
+workflows. Current operations analyze and report only. Any future write
+operation must present a reviewable plan and require explicit user approval.
 
-The current release is **v0.2.0**.
+The current release is **v0.2.0**. The repository also contains the unreleased
+v0.2.1 foundation work, including standard Python packaging and the installable
+`music-manager` console command.
 
 ## Project vision
 
 Music Manager is intended to become a trusted local application for scanning,
 analyzing, verifying, staging, organizing, and reporting on very large music
-collections. Each result should be explainable, reproducible, and reviewable
-before it can affect a library.
+collections. Staging and organization are future capabilities. Each result
+should be explainable, reproducible, and reviewable before it can affect a
+library.
 
-Version 0.1 provides the safe foundation: a read-only scanner and CSV report.
-Later milestones build on that foundation instead of bypassing it.
+The released v0.2 workflow provides a read-only scanner, CSV inventory, and
+report-only analysis. Later milestones build on that foundation instead of
+bypassing it.
 
 ## Why Music Manager exists
 
@@ -38,8 +42,8 @@ change.
 - **Read-only by default:** analysis never implies permission to modify files.
 - **Explicit approval:** future write operations must show their plan and wait
   for confirmation.
-- **Staged and verifiable:** organization work belongs in a separate staging
-  library with checksum validation.
+- **Staged and verifiable:** future organization work belongs in a separate
+  staging library with checksum validation.
 - **Reproducible:** reports and operation logs should explain every result.
 - **Privacy-conscious:** music, reports, personal paths, and private metadata
   never belong in the public repository.
@@ -48,7 +52,7 @@ change.
 
 ## Current capabilities
 
-The v0.1 scanner can:
+The current scanner can:
 
 - recursively discover MP3, FLAC, M4A, AAC, and WAV files;
 - treat every supported audio file under the selected scan root as part of one
@@ -76,13 +80,15 @@ only.
 
 ## Planned capabilities
 
-Planned milestones add:
+Planned milestones, none of which are implemented yet, add:
 
-- MusicBrainz matching with confidence scores and metadata verification;
-- checksum-verified staging copies;
-- approved renaming, retagging, artwork, and album normalization in staging;
-- a local HTML dashboard; and
-- continuous processing of a dedicated inbox.
+- v0.3: a durable, versioned scan and report contract;
+- v0.4: opt-in MusicBrainz matching with confidence scores;
+- v0.5: checksum-verified staging copies;
+- v0.6: approved renaming, retagging, artwork, and album normalization of
+  staged copies;
+- v0.7: a local HTML dashboard; and
+- v0.8: continuous processing of a dedicated inbox.
 
 See [ROADMAP.md](ROADMAP.md) for milestone scope.
 
@@ -98,7 +104,7 @@ git clone https://github.com/saari-co/music-manager.git
 cd music-manager
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --editable .
+python -m pip install .
 ```
 
 On Windows PowerShell, activate the environment with:
@@ -109,16 +115,16 @@ On Windows PowerShell, activate the environment with:
 
 ## Quick start
 
-Run the application against a local source folder:
+Run the installed application against a local source folder:
 
 ```bash
-music-manager --source /path/to/music
+music-manager scan --source /path/to/music
 ```
 
 The existing module entry point remains available:
 
 ```bash
-python -m music_manager --source /path/to/music
+python -m music_manager scan --source /path/to/music
 ```
 
 The compatibility launcher remains available:
@@ -127,7 +133,9 @@ The compatibility launcher remains available:
 python scripts/scan_library.py --source /path/to/music
 ```
 
-Both scan commands write `reports/library_scan.csv`.
+All three scan commands write `reports/library_scan.csv`. The installed command
+also accepts the original `music-manager --source /path/to/music` form for
+compatibility.
 
 Analyze an existing scan:
 
@@ -194,6 +202,7 @@ git switch -c feature/short-description
 Run the automated tests and syntax checks:
 
 ```bash
+ruff check .
 python -m unittest discover -s tests -v
 python -m compileall -q music_manager scripts tests
 ```
@@ -223,16 +232,18 @@ Security reporting guidance is available in [SECURITY.md](SECURITY.md).
 
 ## Roadmap summary
 
-| Milestone | Focus |
-| --- | --- |
-| v0.1 | Read-only scanning and CSV reporting |
-| v0.2 | Duplicate-first library audit, quality, and corruption analysis |
-| v0.3 | MusicBrainz matching and metadata confidence |
-| v0.4 | Checksum-verified staging library |
-| v0.5 | Safe organization engine for staged copies |
-| v0.6 | Local HTML dashboard |
-| v0.7 | Continuous inbox automation |
-| v1.0 | Stable, trusted application workflows |
+| Milestone | Status | Focus |
+| --- | --- | --- |
+| v0.1 | Released | Read-only scanning and CSV reporting |
+| v0.2 | Released | Duplicate-first library audit, quality, and corruption analysis |
+| v0.2.1 | Unreleased | Packaging, CLI, development, configuration, documentation, and test cleanup |
+| v0.3 | Planned | Durable scan and report contract |
+| v0.4 | Planned | Opt-in MusicBrainz matching and metadata confidence |
+| v0.5 | Planned | Checksum-verified staging library |
+| v0.6 | Planned | Safe organization engine for staged copies |
+| v0.7 | Planned | Local HTML dashboard |
+| v0.8 | Planned | Continuous inbox automation |
+| v1.0 | Planned | Stable, trusted application workflows |
 
 ## License
 
