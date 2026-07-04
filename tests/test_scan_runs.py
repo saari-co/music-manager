@@ -12,6 +12,7 @@ from unittest import mock
 from uuid import UUID
 
 from music_manager.artifact_schema import (
+    SCAN_ERRORS_HEADER,
     load_scan_manifest,
     validate_artifact_set,
 )
@@ -117,6 +118,39 @@ class ScanRunTests(unittest.TestCase):
                         str(root),
                         path.read_text(encoding="utf-8"),
                     )
+
+    def test_complete_run_writes_header_only_scan_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            (source / "Track.mp3").write_bytes(b"synthetic")
+
+            outcome = create_scan_run(
+                source,
+                root / "reports",
+                metadata_loader=lambda path: _FakeAudio(),
+                scan_id_factory=lambda: FIRST_SCAN_ID,
+                clock=_clock(0, 1),
+            )
+
+            errors_path = outcome.directory / "scan_errors.csv"
+            self.assertEqual(outcome.state, "complete")
+            self.assertTrue(errors_path.is_file())
+            self.assertEqual(
+                errors_path.read_text(encoding="utf-8"),
+                f"{','.join(SCAN_ERRORS_HEADER)}\n",
+            )
+
+            artifacts = validate_artifact_set(outcome.directory / "scan_manifest.json")
+            self.assertEqual(artifacts.error_rows, ())
+            self.assertEqual(
+                artifacts.manifest.artifacts["scan_errors"].row_count,
+                0,
+            )
+            self.assertEqual(artifacts.manifest.counts.info_findings, 0)
+            self.assertEqual(artifacts.manifest.counts.error_findings, 0)
+            self.assertEqual(artifacts.manifest.counts.fatal_findings, 0)
 
     def test_existing_scan_directory_is_never_reused(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
