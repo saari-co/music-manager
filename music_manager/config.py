@@ -11,6 +11,7 @@ import yaml
 
 DEFAULT_CONFIG_FILENAME = "music-manager.yml"
 PATH_MODES = {"absolute", "relative"}
+SUPPORTED_CONFIG_KEYS = {"ignore", "path_mode"}
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,19 @@ def _validate_mapping(data: Any) -> Mapping[str, Any]:
     return data
 
 
+def _validate_keys(data: Mapping[str, Any]) -> None:
+    unknown_keys = sorted(
+        (key for key in data if key not in SUPPORTED_CONFIG_KEYS),
+        key=str,
+    )
+    if not unknown_keys:
+        return
+
+    label = "key" if len(unknown_keys) == 1 else "keys"
+    names = ", ".join(str(key) for key in unknown_keys)
+    raise ValueError(f"unknown configuration {label}: {names}")
+
+
 def load_config(path: Optional[Path] = None) -> AppConfig:
     """Load configuration, using safe defaults when the default file is absent."""
     config_path = path.expanduser() if path is not None else default_config_path()
@@ -49,6 +63,8 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
             data = _validate_mapping(yaml.safe_load(config_file))
     except yaml.YAMLError as error:
         raise ValueError(f"invalid YAML in {config_path}: {error}") from error
+
+    _validate_keys(data)
 
     path_mode = data.get("path_mode", "relative")
     if not isinstance(path_mode, str) or path_mode not in PATH_MODES:

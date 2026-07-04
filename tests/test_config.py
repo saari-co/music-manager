@@ -33,6 +33,24 @@ class ConfigTests(unittest.TestCase):
                 config.ignore,
                 ("Music/Media.localized", ".DS_Store"),
             )
+
+    def test_rejects_unknown_top_level_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            config_path = Path(temporary_directory) / "config.yml"
+            config_path.write_text(
+                "path_mode: relative\n"
+                "ignore:\n"
+                "  - .DS_Store\n"
+                "unexpected_setting: true\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                r"unknown configuration key: unexpected_setting",
+            ):
+                load_config(config_path)
+
     def test_rejects_invalid_path_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_path = Path(temporary_directory) / "config.yml"
