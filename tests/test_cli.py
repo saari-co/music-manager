@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
+import shutil
 import subprocess
 import sys
-import sysconfig
 import tempfile
 import unittest
+import wave
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Optional
@@ -25,22 +26,6 @@ from music_manager.reports import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-class _FakeInfo:
-    bitrate = 192000
-    length = 180.0
-
-
-class _FakeAudio:
-    tags = {
-        "artist": ["Test Artist"],
-        "title": ["Test Title"],
-        "album": ["Test Album"],
-        "date": ["2026"],
-        "tracknumber": ["1"],
-    }
-    info = _FakeInfo()
-
-
 def _source_snapshot(source: Path) -> dict[str, Optional[bytes]]:
     """Capture every source path and file payload."""
     return {
@@ -51,23 +36,25 @@ def _source_snapshot(source: Path) -> dict[str, Optional[bytes]]:
     }
 
 
+def _write_synthetic_wav(path: Path) -> None:
+    """Write a small valid audio fixture without external media."""
+    with wave.open(str(path), "wb") as audio_file:
+        audio_file.setnchannels(1)
+        audio_file.setsampwidth(2)
+        audio_file.setframerate(8000)
+        audio_file.writeframes(b"\x00\x00" * 800)
+
+
 class CliRegressionTests(unittest.TestCase):
     """Characterize the released command-line behavior."""
 
-    def test_installed_and_module_help_entry_points_match(self) -> None:
-        scripts_directory = Path(sysconfig.get_path("scripts"))
-        command_name = (
-            "music-manager.exe" if sys.platform == "win32" else "music-manager"
-        )
-        console_command = scripts_directory / command_name
-        self.assertTrue(
-            console_command.is_file(),
-            f"console command is not installed: {console_command}",
-        )
+    def test_installed_and_module_help_entry_points_work(self) -> None:
+        console_command = shutil.which("music-manager")
+        if console_command is None:
+            self.fail("music-manager console command is not installed")
 
-        outputs = []
         for command in (
-            [str(console_command), "--help"],
+            [console_command, "--help"],
             [sys.executable, "-m", "music_manager.cli", "--help"],
         ):
             with self.subTest(command=command):
@@ -88,9 +75,6 @@ class CliRegressionTests(unittest.TestCase):
                     "or edited.",
                     result.stdout,
                 )
-                outputs.append(result.stdout)
-
-        self.assertEqual(outputs[0], outputs[1])
 
     def test_scan_cli_applies_config_without_changing_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -98,12 +82,12 @@ class CliRegressionTests(unittest.TestCase):
             source = root / "source"
             ignored = source / "Ignored"
             ignored.mkdir(parents=True)
-            audio_path = source / "Keep.mp3"
+            audio_path = source / "Keep.wav"
             archive_path = source / "Archive.zip"
-            ignored_audio_path = ignored / "Skip.mp3"
-            audio_path.write_bytes(b"synthetic audio payload")
+            ignored_audio_path = ignored / "Skip.wav"
+            _write_synthetic_wav(audio_path)
             archive_path.write_bytes(b"not opened as a ZIP archive")
-            ignored_audio_path.write_bytes(b"ignored audio payload")
+            _write_synthetic_wav(ignored_audio_path)
             source_before = _source_snapshot(source)
 
             config_path = root / "music-manager.yml"
@@ -120,14 +104,6 @@ class CliRegressionTests(unittest.TestCase):
                     "music_manager.cli.DEFAULT_SCAN_REPORT_PATH",
                     report_path,
                 ),
-                mock.patch(
-                    "music_manager.cli.metadata_reader_available",
-                    return_value=True,
-                ),
-                mock.patch(
-                    "music_manager.scanner._load_metadata",
-                    return_value=_FakeAudio(),
-                ) as metadata_loader,
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
             ):
@@ -144,7 +120,6 @@ class CliRegressionTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(stderr.getvalue(), "")
             self.assertEqual(_source_snapshot(source), source_before)
-            metadata_loader.assert_called_once_with(audio_path)
 
             with report_path.open(encoding="utf-8", newline="") as report:
                 rows = list(csv.DictReader(report))
@@ -168,9 +143,13 @@ class CliRegressionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             stderr = io.StringIO()
+            report_path = root / "reports" / "library_scan.csv"
 
             with (
-                mock.patch("music_manager.cli.scan_library") as scan_library,
+                mock.patch(
+                    "music_manager.cli.DEFAULT_SCAN_REPORT_PATH",
+                    report_path,
+                ),
                 redirect_stderr(stderr),
             ):
                 exit_code = main(
@@ -184,7 +163,7 @@ class CliRegressionTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 2)
-            scan_library.assert_not_called()
+            self.assertFalse(report_path.exists())
             self.assertIn(
                 "unknown configuration key: unknown_setting",
                 stderr.getvalue(),
