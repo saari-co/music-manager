@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "music-manager"
+dynamic = ["version"]
+description = "Safely scan and analyze local music libraries."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "saari-co" },
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+  "mutagen==1.47.0",
+  "PyYAML==6.0.3",
+]
+
+[project.scripts]
+music-manager = "music_manager.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/saari-co/music-manager"
+Issues = "https://github.com/saari-co/music-manager/issues"
+
+[tool.setuptools]
+packages = ["music_manager"]
+
+[tool.setuptools.dynamic]
+version = { attr = "music_manager.__version__" }

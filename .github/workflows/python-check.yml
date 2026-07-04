@@ -27,8 +27,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+      - name: Install project
+        run: python -m pip install --editable .
+
+      - name: Verify command entry points
+        run: |
+          music-manager --help
+          python -m music_manager --help
+          python -m music_manager.cli --help
+          python scripts/scan_library.py --help
 
       - name: Compile application
         run: python -m compileall -q music_manager scripts tests

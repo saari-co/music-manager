@@ -255,3 +255,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     parser.error("provide --source for a scan or choose the analyze command")
     return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
