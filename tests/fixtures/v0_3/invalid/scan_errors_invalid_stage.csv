@@ -1,0 +1,2 @@
+scan_id,file_record_id,path,stage,severity,error_code,message
+12345678-1234-4abc-8def-1234567890ab,,Linked Music,walking,info,symlink_skipped,Symlink was not followed

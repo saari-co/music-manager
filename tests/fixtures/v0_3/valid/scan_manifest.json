@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "application_version": "0.3.0",
+  "scan_id": "12345678-1234-4abc-8def-1234567890ab",
+  "state": "complete",
+  "started_at": "2026-07-04T16:00:00Z",
+  "completed_at": "2026-07-04T16:00:01.250Z",
+  "artifacts": {
+    "library_scan": {
+      "filename": "library_scan.csv",
+      "role": "primary",
+      "application_version": "0.3.0",
+      "generated_at": "2026-07-04T16:00:01Z",
+      "row_count": 2,
+      "sha256": "169514281fc834b80997d35fd6aa7c3e5e0f6e0e46f4f90375c75309c9f79786"
+    },
+    "scan_errors": {
+      "filename": "scan_errors.csv",
+      "role": "primary",
+      "application_version": "0.3.0",
+      "generated_at": "2026-07-04T16:00:01Z",
+      "row_count": 1,
+      "sha256": "7fafdc8d1ab5eb4b90ed691e00e6a9e997624798fee336d0e4d45650373d1c52"
+    }
+  },
+  "counts": {
+    "inventory_rows": 2,
+    "info_findings": 1,
+    "error_findings": 0,
+    "fatal_findings": 0,
+    "skipped_symlinks": 1
+  },
+  "configuration": {
+    "ignore": [
+      ".DS_Store",
+      "Music/Media.localized"
+    ],
+    "path_mode": "relative",
+    "follow_symlinks": false
+  }
+}
