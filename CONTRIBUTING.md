@@ -7,6 +7,18 @@ documentation are welcome.
 
 Never develop directly on `main`.
 
+Create and activate a virtual environment, then install the project with its
+development tools:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --editable ".[dev]"
+```
+
+On Windows PowerShell, activate the environment with
+`.venv\Scripts\Activate.ps1` instead.
+
 1. Create or select a GitHub issue for the change.
 2. Associate the issue with the appropriate roadmap milestone.
 3. Create a focused branch from the latest `main`.
@@ -46,6 +58,7 @@ not practical, include clear manual verification notes in the pull request.
 At minimum, run the checks used in continuous integration:
 
 ```bash
+ruff check .
 python -m unittest discover -s tests -v
 python -m compileall -q music_manager scripts tests
 ```
