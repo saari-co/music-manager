@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import io
 import shutil
 import subprocess
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 from unittest import mock
 
+from music_manager.artifact_schema import validate_artifact_set
 from music_manager.cli import main
 from music_manager.models import ScanRecord
 from music_manager.reports import (
@@ -71,8 +71,7 @@ class CliRegressionTests(unittest.TestCase):
                 self.assertIn("usage: music-manager", result.stdout)
                 self.assertIn("{scan,analyze}", result.stdout)
                 self.assertIn(
-                    "Music files are never renamed, moved, copied, deleted, "
-                    "or edited.",
+                    "Music files are never renamed, moved, copied, deleted, or edited.",
                     result.stdout,
                 )
 
@@ -92,17 +91,17 @@ class CliRegressionTests(unittest.TestCase):
 
             config_path = root / "music-manager.yml"
             config_path.write_text(
-                "path_mode: absolute\nignore:\n  - Ignored\n",
+                "path_mode: relative\nignore:\n  - Ignored\n",
                 encoding="utf-8",
             )
-            report_path = root / "reports" / "library_scan.csv"
+            reports = root / "reports"
             stdout = io.StringIO()
             stderr = io.StringIO()
 
             with (
                 mock.patch(
-                    "music_manager.cli.DEFAULT_SCAN_REPORT_PATH",
-                    report_path,
+                    "music_manager.cli.DEFAULT_REPORT_DIRECTORY",
+                    reports,
                 ),
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
@@ -121,16 +120,27 @@ class CliRegressionTests(unittest.TestCase):
             self.assertEqual(stderr.getvalue(), "")
             self.assertEqual(_source_snapshot(source), source_before)
 
-            with report_path.open(encoding="utf-8", newline="") as report:
-                rows = list(csv.DictReader(report))
-
+            run_directories = [path for path in reports.iterdir() if path.is_dir()]
+            self.assertEqual(len(run_directories), 1)
+            run_directory = run_directories[0]
+            artifacts = validate_artifact_set(run_directory / "scan_manifest.json")
             self.assertEqual(
-                {row["path"] for row in rows},
-                {str(audio_path), str(archive_path)},
+                {row.path for row in artifacts.library_rows},
+                {"Keep.wav", "Archive.zip"},
             )
-            self.assertNotIn(str(ignored_audio_path), report_path.read_text())
+            self.assertEqual(artifacts.manifest.state, "complete")
+            self.assertNotIn(
+                str(ignored_audio_path),
+                (run_directory / "library_scan.csv").read_text(),
+            )
+            self.assertNotIn(
+                str(root),
+                (run_directory / "scan_manifest.json").read_text(),
+            )
             self.assertIn("Root Library total: 1", stdout.getvalue())
             self.assertIn("Archives: 1", stdout.getvalue())
+            self.assertIn(f"Reports directory: {run_directory}", stdout.getvalue())
+            self.assertIn("Scan state: complete", stdout.getvalue())
 
     def test_cli_rejects_unknown_config_before_scanning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -143,12 +153,12 @@ class CliRegressionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             stderr = io.StringIO()
-            report_path = root / "reports" / "library_scan.csv"
+            reports = root / "reports"
 
             with (
                 mock.patch(
-                    "music_manager.cli.DEFAULT_SCAN_REPORT_PATH",
-                    report_path,
+                    "music_manager.cli.DEFAULT_REPORT_DIRECTORY",
+                    reports,
                 ),
                 redirect_stderr(stderr),
             ):
@@ -163,9 +173,41 @@ class CliRegressionTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 2)
-            self.assertFalse(report_path.exists())
+            self.assertFalse(reports.exists())
             self.assertIn(
                 "unknown configuration key: unknown_setting",
+                stderr.getvalue(),
+            )
+
+    def test_scan_cli_rejects_absolute_path_mode_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            source = root / "source"
+            reports = root / "reports"
+            source.mkdir()
+            stderr = io.StringIO()
+
+            with (
+                mock.patch(
+                    "music_manager.cli.DEFAULT_REPORT_DIRECTORY",
+                    reports,
+                ),
+                redirect_stderr(stderr),
+            ):
+                exit_code = main(
+                    [
+                        "scan",
+                        "--source",
+                        str(source),
+                        "--path-mode",
+                        "absolute",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 2)
+            self.assertFalse(reports.exists())
+            self.assertIn(
+                "schema 1 rejects absolute path output",
                 stderr.getvalue(),
             )
 

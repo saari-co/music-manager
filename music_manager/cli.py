@@ -17,9 +17,9 @@ from music_manager.models import LibraryAnalysis, ScanResult
 from music_manager.reports import (
     read_scan_report,
     write_analysis_reports,
-    write_csv_report,
 )
-from music_manager.scanner import metadata_reader_available, scan_library
+from music_manager.scan_runs import ScanRunOutcome, create_scan_run
+from music_manager.scanner import metadata_reader_available
 from music_manager.utils import clean_error
 
 
@@ -35,9 +35,7 @@ def _non_negative_float(value: str) -> float:
     return parsed
 
 
-def _add_scan_arguments(
-    parser: argparse.ArgumentParser, required: bool
-) -> None:
+def _add_scan_arguments(parser: argparse.ArgumentParser, required: bool) -> None:
     parser.add_argument(
         "--source",
         required=required,
@@ -113,16 +111,19 @@ def _print_scan_warnings(result: ScanResult) -> None:
         print(f"Warning: could not scan directory: {error}", file=sys.stderr)
 
 
-def _print_scan_summary(result: ScanResult, report_path: Path) -> None:
+def _print_scan_summary(outcome: ScanRunOutcome, source: Path) -> None:
     """Print a concise scan summary."""
-    summary = result.summary
-    print("Scan complete")
-    print(f"Scan root: {result.source}")
-    print(f"Report: {report_path}")
-    print(f"Root Library total: {summary.root_library_total}")
-    print(f"Archives: {summary.archive_count}")
-    print(f"File errors: {summary.file_error_count}")
-    print(f"Directory errors: {summary.directory_error_count}")
+    result = outcome.scan_result
+    print("Scan failed" if outcome.state == "failed" else "Scan complete")
+    print(f"Scan root: {source}")
+    print(f"Reports directory: {outcome.directory}")
+    print(f"Scan state: {outcome.state}")
+    if result is not None:
+        summary = result.summary
+        print(f"Root Library total: {summary.root_library_total}")
+        print(f"Archives: {summary.archive_count}")
+        print(f"File errors: {summary.file_error_count}")
+        print(f"Directory errors: {summary.directory_error_count}")
 
 
 def _print_analysis_summary(
@@ -135,29 +136,15 @@ def _print_analysis_summary(
     print(f"Reports directory: {DEFAULT_REPORT_DIRECTORY}")
     print(f"Path mode: {path_mode}")
     print(f"Root Library total: {summary.root_library_total}")
-    print(
-        "Duplicate candidate groups: "
-        f"{summary.duplicate_candidate_groups}"
-    )
-    print(
-        "Duplicate candidate files: "
-        f"{summary.duplicate_candidate_files}"
-    )
-    print(
-        "Files with missing metadata: "
-        f"{summary.files_with_missing_metadata}"
-    )
-    print(
-        "Corrupt/unreadable files: "
-        f"{summary.corrupt_or_unreadable_files}"
-    )
+    print(f"Duplicate candidate groups: {summary.duplicate_candidate_groups}")
+    print(f"Duplicate candidate files: {summary.duplicate_candidate_files}")
+    print(f"Files with missing metadata: {summary.files_with_missing_metadata}")
+    print(f"Corrupt/unreadable files: {summary.corrupt_or_unreadable_files}")
     print(f"Low bitrate files: {summary.low_bitrate_files}")
 
 
-def _run_scan(
-    source_argument: str, config: AppConfig, path_mode: str
-) -> int:
-    """Run the existing read-only scanner."""
+def _run_scan(source_argument: str, config: AppConfig, path_mode: str) -> int:
+    """Run the read-only scanner and persist one versioned artifact set."""
     source = Path(source_argument).expanduser().resolve()
 
     if not source.exists():
@@ -174,28 +161,29 @@ def _run_scan(
         )
         return 2
 
-    result = scan_library(
-        source,
-        ignore_patterns=config.ignore,
-    )
-    _print_scan_warnings(result)
-
     try:
-        write_csv_report(
-            result.records,
-            DEFAULT_SCAN_REPORT_PATH,
-            source=source,
+        outcome = create_scan_run(
+            source,
+            DEFAULT_REPORT_DIRECTORY,
+            ignore_patterns=config.ignore,
             path_mode=path_mode,
         )
+    except ValueError as error:
+        print(f"Error: invalid scan configuration: {error}", file=sys.stderr)
+        return 2
     except (OSError, csv.Error) as error:
         print(
-            f"Error: could not write report {DEFAULT_SCAN_REPORT_PATH}: "
-            f"{clean_error(error)}",
+            f"Error: could not create scan run: {clean_error(error)}",
             file=sys.stderr,
         )
         return 1
 
-    _print_scan_summary(result, DEFAULT_SCAN_REPORT_PATH)
+    if outcome.scan_result is not None:
+        _print_scan_warnings(outcome.scan_result)
+    _print_scan_summary(outcome, source)
+    if outcome.state == "failed":
+        print(f"Error: scan failed: {outcome.error}", file=sys.stderr)
+        return 1
     return 0
 
 
