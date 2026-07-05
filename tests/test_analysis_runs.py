@@ -18,6 +18,7 @@ from music_manager import __version__
 from music_manager.analysis_runs import analyze_scan_run
 from music_manager.artifact_schema import (
     ArtifactValidationError,
+    UnsupportedSchemaVersionError,
     load_scan_manifest,
     make_file_record_id,
     validate_artifact_set,
@@ -522,6 +523,61 @@ class AnalysisRunTests(unittest.TestCase):
                     for entry in load_scan_manifest(manifest_path).artifacts.values()
                 )
             )
+
+    def test_derived_artifact_replace_failure_registers_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_directory = _copy_valid_run(Path(temporary_directory))
+            manifest_path = run_directory / "scan_manifest.json"
+            original_manifest = manifest_path.read_bytes()
+            real_replace = os.replace
+
+            def fail_derived_replace(source: Path, target: Path) -> None:
+                if Path(target).name == "missing_metadata.csv":
+                    raise OSError("injected derived artifact failure")
+                real_replace(source, target)
+
+            with (
+                mock.patch(
+                    "music_manager.analysis_runs.os.replace",
+                    side_effect=fail_derived_replace,
+                ),
+                self.assertRaisesRegex(OSError, "injected derived"),
+            ):
+                analyze_scan_run(run_directory, clock=_clock(9))
+
+            self.assertEqual(manifest_path.read_bytes(), original_manifest)
+            self.assertFalse(
+                any(
+                    (run_directory / filename).exists()
+                    for filename in DERIVED_FILENAMES
+                )
+            )
+            self.assertFalse(any(run_directory.glob(".*.tmp")))
+            validate_artifact_set(manifest_path)
+
+    def test_unsupported_schema_is_rejected_before_csv_access(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_directory = _copy_valid_run(Path(temporary_directory))
+            manifest_path = run_directory / "scan_manifest.json"
+            manifest = _manifest_data(manifest_path)
+            manifest["schema_version"] = "2.0.0"
+            _write_manifest(manifest_path, manifest)
+            original_open = Path.open
+
+            def reject_csv_access(
+                path: Path,
+                *args: object,
+                **kwargs: object,
+            ):
+                if path.suffix == ".csv":
+                    raise AssertionError(f"opened CSV for unsupported schema: {path}")
+                return original_open(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(Path, "open", reject_csv_access),
+                self.assertRaises(UnsupportedSchemaVersionError),
+            ):
+                analyze_scan_run(run_directory)
 
 
 if __name__ == "__main__":
