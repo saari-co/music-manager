@@ -1,0 +1,94 @@
+{
+  "created": "2031-04-05T06:07:08.000Z",
+  "count": 7,
+  "offset": 0,
+  "recordings": [
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "score": 88,
+      "title": "Signal Garden",
+      "length": 201250,
+      "first-release-date": "2031-02-03",
+      "artist-credit": [
+        {
+          "name": "Velvet Meridian",
+          "joinphrase": " & "
+        },
+        {
+          "name": "Neon Orchard",
+          "joinphrase": ""
+        }
+      ],
+      "releases": [
+        {
+          "id": "66666666-6666-4666-8666-666666666666",
+          "title": "Paper Constellations"
+        },
+        {
+          "id": "77777777-7777-4777-8777-777777777777",
+          "title": "Signal Garden Single"
+        }
+      ]
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "score": 97,
+      "title": "Signal Garden (Night Mix)",
+      "length": 205000,
+      "artist-credit": [
+        {
+          "name": "Velvet Meridian",
+          "joinphrase": ""
+        }
+      ],
+      "releases": []
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "score": 97,
+      "title": "Signal Garden",
+      "length": 201250,
+      "first-release-date": "2031-02-03",
+      "artist-credit": [
+        {
+          "name": "Velvet Meridian",
+          "joinphrase": " & "
+        },
+        {
+          "name": "Neon Orchard",
+          "joinphrase": ""
+        }
+      ],
+      "releases": [
+        {
+          "id": "77777777-7777-4777-8777-777777777777",
+          "title": "Signal Garden Single"
+        },
+        {
+          "id": "66666666-6666-4666-8666-666666666666",
+          "title": "Paper Constellations"
+        }
+      ]
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "score": 70,
+      "title": "Lattice Rain"
+    },
+    {
+      "score": 62,
+      "title": "Missing Identifier"
+    },
+    {
+      "id": "88888888-8888-4888-8888-888888888888",
+      "score": 61,
+      "title": ""
+    },
+    {
+      "id": "99999999-9999-4999-8999-999999999999",
+      "score": 60,
+      "title": "Negative Duration",
+      "length": -1
+    }
+  ]
+}
