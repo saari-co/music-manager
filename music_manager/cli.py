@@ -16,8 +16,8 @@ from music_manager.analyzer import (
 from music_manager.config import AppConfig, PATH_MODES, load_config
 from music_manager.models import LibraryAnalysis, ScanResult
 from music_manager.reports import (
-    read_scan_report,
-    write_analysis_reports,
+    read_legacy_scan_report,
+    write_legacy_analysis_reports,
 )
 from music_manager.scan_runs import ScanRunOutcome, create_scan_run
 from music_manager.scanner import metadata_reader_available
@@ -144,10 +144,14 @@ def _print_analysis_summary(
     scan_report: Path,
     path_mode: str,
     reports_directory: Path,
+    *,
+    legacy: bool = False,
 ) -> None:
     """Print the required v0.2 terminal summary."""
     summary = analysis.summary
     print("Analysis complete")
+    if legacy:
+        print("Compatibility mode: legacy v0.2 (unversioned)")
     print(f"Scan report: {scan_report}")
     print(f"Reports directory: {reports_directory}")
     print(f"Path mode: {path_mode}")
@@ -218,12 +222,18 @@ def _run_flat_analysis(
         return 2
 
     try:
-        records = read_scan_report(scan_report, path_mode=path_mode)
+        records = read_legacy_scan_report(scan_report, path_mode=path_mode)
+        print(
+            "Warning: legacy v0.2 compatibility mode; analysis output is "
+            "unversioned and has no durable provenance. Rescan the library "
+            "to create schema 1 artifacts.",
+            file=sys.stderr,
+        )
         analysis = analyze_library(
             records,
             duration_tolerance=duration_tolerance,
         )
-        write_analysis_reports(analysis, DEFAULT_REPORT_DIRECTORY)
+        write_legacy_analysis_reports(analysis, DEFAULT_REPORT_DIRECTORY)
     except (OSError, csv.Error, ValueError) as error:
         print(
             f"Error: could not analyze {scan_report}: {clean_error(error)}",
@@ -236,6 +246,7 @@ def _run_flat_analysis(
         scan_report,
         path_mode,
         DEFAULT_REPORT_DIRECTORY,
+        legacy=True,
     )
     return 0
 
