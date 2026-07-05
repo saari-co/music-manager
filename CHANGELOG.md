@@ -17,6 +17,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added the production MusicBrainz client shell with fixed HTTPS request
   policy, persistent opaque-key caching, deterministic rate limiting and
   retries, and fully injected offline test seams.
+- Added deterministic in-memory MusicBrainz album and recording subject
+  extraction plus injected-client candidate retrieval without scoring or
+  artifact output.
 
 ## [0.3.0] - 2026-07-04
 
