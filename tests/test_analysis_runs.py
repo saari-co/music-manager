@@ -42,6 +42,7 @@ DERIVED_NAMES = {
     "corrupt_files",
     "quality_summary",
 }
+DERIVED_FILENAMES = {f"{name}.csv" for name in DERIVED_NAMES}
 FILE_REPORTS = {
     "duplicate_candidates.csv",
     "missing_metadata.csv",
@@ -433,6 +434,12 @@ class AnalysisRunTests(unittest.TestCase):
             self.assertFalse(
                 any(entry.role == "derived" for entry in manifest.artifacts.values())
             )
+            self.assertFalse(
+                any(
+                    (run_directory / filename).exists()
+                    for filename in DERIVED_FILENAMES
+                )
+            )
             self.assertFalse(any(run_directory.glob(".*.tmp")))
             validate_artifact_set(manifest_path)
 
@@ -441,6 +448,12 @@ class AnalysisRunTests(unittest.TestCase):
             run_directory = _copy_valid_run(Path(temporary_directory))
             manifest_path = run_directory / "scan_manifest.json"
             analyze_scan_run(run_directory, clock=_clock(5))
+            self.assertTrue(
+                all(
+                    (run_directory / filename).is_file()
+                    for filename in DERIVED_FILENAMES
+                )
+            )
             real_replace = os.replace
             manifest_replacements = 0
 
@@ -465,6 +478,12 @@ class AnalysisRunTests(unittest.TestCase):
             self.assertEqual(manifest.state, "complete")
             self.assertFalse(
                 any(entry.role == "derived" for entry in manifest.artifacts.values())
+            )
+            self.assertFalse(
+                any(
+                    (run_directory / filename).exists()
+                    for filename in DERIVED_FILENAMES
+                )
             )
             self.assertFalse(any(run_directory.glob(".*.tmp")))
             validate_artifact_set(manifest_path)

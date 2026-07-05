@@ -246,6 +246,8 @@ def analyze_scan_run(
     )
     specs = versioned_analysis_report_specs(analysis, manifest.scan_id)
     staged: list[tuple[AnalysisReportSpec, Path | None, str, int]] = []
+    finalized: list[Path] = []
+    registered = False
     try:
         for spec in specs:
             temporary, digest, row_count = _stage_csv(run_directory, spec)
@@ -272,7 +274,9 @@ def analyze_scan_run(
         for index, (spec, temporary, digest, row_count) in enumerate(staged):
             if temporary is None:
                 raise AssertionError("analysis report was already finalized")
-            os.replace(temporary, run_directory / spec.filename)
+            final_path = run_directory / spec.filename
+            os.replace(temporary, final_path)
+            finalized.append(final_path)
             staged[index] = (spec, None, digest, row_count)
 
         final_artifacts = {
@@ -284,6 +288,7 @@ def analyze_scan_run(
             final_artifacts,
         )
         _atomic_write_manifest(manifest_path, final_manifest)
+        registered = True
         return AnalysisRunOutcome(
             directory=run_directory,
             manifest=final_manifest,
@@ -293,3 +298,6 @@ def analyze_scan_run(
         for _spec, temporary, _digest, _row_count in staged:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+        if not registered:
+            for final_path in finalized:
+                final_path.unlink(missing_ok=True)
