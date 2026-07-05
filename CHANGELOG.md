@@ -14,6 +14,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added default-off MusicBrainz configuration, consent preflight plumbing,
   identifiable User-Agent construction, and an injectable client interface
   without real network or matching behavior.
+- Added the production MusicBrainz client shell with fixed HTTPS request
+  policy, persistent opaque-key caching, deterministic rate limiting and
+  retries, and fully injected offline test seams.
 
 ## [0.3.0] - 2026-07-04
 
