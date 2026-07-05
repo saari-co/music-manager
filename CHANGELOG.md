@@ -7,6 +7,40 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-04
+
+### Added
+
+- Added the schema 1 manifest, inventory, structured-error, and derived-report
+  contracts with strict validation and artifact integrity checks.
+- Added exclusive `reports/<scan-id>/` run directories with atomic `running`,
+  `complete`, `incomplete`, and `failed` lifecycle transitions.
+- Added expanded metadata fields, scan-local file record IDs, stat
+  fingerprints, and persisted findings for skipped symlinks.
+- Added versioned analysis provenance and all-or-nothing derived artifact
+  registration without accessing referenced source-library paths.
+- Added strict, warned compatibility analysis for the two documented
+  unversioned v0.2 scan headers without inventing schema 1 provenance.
+- Added synthetic end-to-end, failure-injection, privacy, symlink, contract,
+  and deterministic 100,000-row scale coverage.
+
+### Changed
+
+- Scans now create a versioned artifact directory instead of overwriting one
+  flat inventory report.
+- Versioned analysis now selects an explicit finalized scan run and registers
+  its reports in that run's manifest.
+- User documentation now explains versioned run selection and how to recognize
+  legacy compatibility mode.
+
+### Security
+
+- Versioned artifacts require source-relative paths and sanitized configuration
+  and error text so absolute roots do not enter durable reports.
+- File, directory, broken, outside-root, and cyclic symlinks are never followed.
+- Scanning and analysis remain local, read-only workflows with no network or
+  source-library write behavior.
+
 ## [0.2.1] - 2026-07-04
 
 ### Added

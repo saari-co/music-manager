@@ -60,7 +60,7 @@ destructive behavior.
 
 ## v0.3 — Durable Scan and Report Contract
 
-**Status:** Planned
+**Status:** Released
 
 - Write a short format decision document before implementation.
 - Add a versioned `scan_manifest.json`.

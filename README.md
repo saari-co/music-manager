@@ -8,7 +8,7 @@ The project emphasizes safety, reproducibility, metadata accuracy, and staged
 workflows. Current operations analyze and report only. Any future write
 operation must present a reviewable plan and require explicit user approval.
 
-The current release is **v0.2.1**.
+The current release is **v0.3.0**.
 
 ## Project vision
 
@@ -18,9 +18,9 @@ collections. Staging and organization are future capabilities. Each result
 should be explainable, reproducible, and reviewable before it can affect a
 library.
 
-The released v0.2 workflow provides a read-only scanner, CSV inventory, and
-report-only analysis. Later milestones build on that foundation instead of
-bypassing it.
+The released v0.3 workflow provides a read-only, versioned scanner and
+report-only analysis with durable local provenance. Later milestones build on
+that foundation instead of bypassing it.
 
 ## Why Music Manager exists
 
@@ -275,7 +275,7 @@ Security reporting guidance is available in [SECURITY.md](SECURITY.md).
 | v0.1 | Released | Read-only scanning and CSV reporting |
 | v0.2 | Released | Duplicate-first library audit, quality, and corruption analysis |
 | v0.2.1 | Released | Packaging, CLI, development, configuration, documentation, and test cleanup |
-| v0.3 | Unreleased | Durable scan and report contract |
+| v0.3 | Released | Durable scan and report contract |
 | v0.4 | Planned | Opt-in MusicBrainz matching and metadata confidence |
 | v0.5 | Planned | Checksum-verified staging library |
 | v0.6 | Planned | Safe organization engine for staged copies |
