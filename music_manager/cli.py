@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
+from music_manager.analysis_runs import analyze_scan_run
 from music_manager.analyzer import (
     DEFAULT_DURATION_TOLERANCE,
     analyze_library,
@@ -84,11 +85,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="analyze an existing scan CSV without accessing music files",
     )
     _add_config_arguments(analyze_parser, suppress_defaults=True)
-    analyze_parser.add_argument(
+    analysis_input = analyze_parser.add_mutually_exclusive_group()
+    analysis_input.add_argument(
+        "--scan-run",
+        type=Path,
+        help=(
+            "validated schema 1 reports/<scan-id> directory; writes and "
+            "registers analysis in that directory"
+        ),
+    )
+    analysis_input.add_argument(
         "--scan-report",
         type=Path,
         default=DEFAULT_SCAN_REPORT_PATH,
-        help="scan CSV to analyze (default: reports/library_scan.csv)",
+        help=(
+            "flat v0.2 scan CSV to analyze without versioned provenance "
+            "(default: reports/library_scan.csv)"
+        ),
     )
     analyze_parser.add_argument(
         "--duration-tolerance",
@@ -127,13 +140,16 @@ def _print_scan_summary(outcome: ScanRunOutcome, source: Path) -> None:
 
 
 def _print_analysis_summary(
-    analysis: LibraryAnalysis, scan_report: Path, path_mode: str
+    analysis: LibraryAnalysis,
+    scan_report: Path,
+    path_mode: str,
+    reports_directory: Path,
 ) -> None:
     """Print the required v0.2 terminal summary."""
     summary = analysis.summary
     print("Analysis complete")
     print(f"Scan report: {scan_report}")
-    print(f"Reports directory: {DEFAULT_REPORT_DIRECTORY}")
+    print(f"Reports directory: {reports_directory}")
     print(f"Path mode: {path_mode}")
     print(f"Root Library total: {summary.root_library_total}")
     print(f"Duplicate candidate groups: {summary.duplicate_candidate_groups}")
@@ -187,7 +203,7 @@ def _run_scan(source_argument: str, config: AppConfig, path_mode: str) -> int:
     return 0
 
 
-def _run_analysis(
+def _run_flat_analysis(
     scan_report_argument: Path,
     duration_tolerance: float,
     path_mode: str,
@@ -215,7 +231,56 @@ def _run_analysis(
         )
         return 1
 
-    _print_analysis_summary(analysis, scan_report, path_mode)
+    _print_analysis_summary(
+        analysis,
+        scan_report,
+        path_mode,
+        DEFAULT_REPORT_DIRECTORY,
+    )
+    return 0
+
+
+def _run_versioned_analysis(
+    scan_run_argument: Path,
+    duration_tolerance: float,
+    path_mode: str,
+) -> int:
+    """Analyze one final schema 1 run without accessing music paths."""
+    if path_mode != "relative":
+        print(
+            "Error: schema 1 analysis requires relative path mode",
+            file=sys.stderr,
+        )
+        return 2
+
+    scan_run = scan_run_argument.expanduser()
+    if not scan_run.is_absolute():
+        scan_run = Path.cwd() / scan_run
+    if not scan_run.exists():
+        print(f"Error: scan run does not exist: {scan_run}", file=sys.stderr)
+        return 2
+    if not scan_run.is_dir():
+        print(f"Error: scan run is not a directory: {scan_run}", file=sys.stderr)
+        return 2
+
+    try:
+        outcome = analyze_scan_run(
+            scan_run,
+            duration_tolerance=duration_tolerance,
+        )
+    except (OSError, csv.Error, ValueError) as error:
+        print(
+            f"Error: could not analyze scan run {scan_run}: {clean_error(error)}",
+            file=sys.stderr,
+        )
+        return 1
+
+    _print_analysis_summary(
+        outcome.analysis,
+        scan_run / "library_scan.csv",
+        "relative",
+        scan_run,
+    )
     return 0
 
 
@@ -231,7 +296,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     path_mode = args.path_mode or config.path_mode
 
     if args.command == "analyze":
-        return _run_analysis(
+        if args.scan_run is not None:
+            return _run_versioned_analysis(
+                args.scan_run,
+                duration_tolerance=args.duration_tolerance,
+                path_mode=path_mode,
+            )
+        return _run_flat_analysis(
             args.scan_report,
             duration_tolerance=args.duration_tolerance,
             path_mode=path_mode,

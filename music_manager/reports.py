@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import csv
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
+from uuid import UUID
 
 from music_manager.analyzer import QUALITY_BUCKETS
 from music_manager.config import PATH_MODES
@@ -84,6 +86,23 @@ QUALITY_FIELDNAMES = [
     "file_count",
     "is_suspicious_low_quality",
 ]
+LIBRARY_ANALYSIS_HEADER = ("scan_id", *ANALYSIS_FIELDNAMES)
+DUPLICATE_CANDIDATES_HEADER = (
+    "scan_id",
+    "file_record_id",
+    *DUPLICATE_FIELDNAMES,
+)
+MISSING_METADATA_HEADER = (
+    "scan_id",
+    "file_record_id",
+    *MISSING_METADATA_FIELDNAMES,
+)
+CORRUPT_FILES_HEADER = (
+    "scan_id",
+    "file_record_id",
+    *CORRUPT_FILE_FIELDNAMES,
+)
+QUALITY_SUMMARY_HEADER = ("scan_id", *QUALITY_FIELDNAMES)
 ANALYSIS_REPORT_FILENAMES = {
     "analysis": "library_analysis.csv",
     "duplicates": "duplicate_candidates.csv",
@@ -91,6 +110,23 @@ ANALYSIS_REPORT_FILENAMES = {
     "corrupt_files": "corrupt_files.csv",
     "quality": "quality_summary.csv",
 }
+VERSIONED_ANALYSIS_REPORT_FILENAMES = {
+    "library_analysis": "library_analysis.csv",
+    "duplicate_candidates": "duplicate_candidates.csv",
+    "missing_metadata": "missing_metadata.csv",
+    "corrupt_files": "corrupt_files.csv",
+    "quality_summary": "quality_summary.csv",
+}
+
+
+@dataclass(frozen=True)
+class AnalysisReportSpec:
+    """One versioned analysis report ready for transactional staging."""
+
+    logical_name: str
+    filename: str
+    fieldnames: Sequence[str]
+    rows: Iterable[Mapping[str, CsvValue]]
 
 
 def _write_rows(
@@ -324,6 +360,107 @@ def _quality_rows(analysis: LibraryAnalysis) -> Iterable[Mapping[str, CsvValue]]
             "file_count": analysis.quality_buckets[bucket],
             "is_suspicious_low_quality": bucket == "under_128",
         }
+
+
+def _with_scan_id(
+    rows: Iterable[Mapping[str, CsvValue]],
+    scan_id: UUID,
+) -> Iterable[Mapping[str, CsvValue]]:
+    scan_id_text = str(scan_id)
+    for row in rows:
+        yield {"scan_id": scan_id_text, **row}
+
+
+def _with_file_provenance(
+    rows: Iterable[Mapping[str, CsvValue]],
+    records: Iterable[ScanRecord],
+    scan_id: UUID,
+) -> Iterable[Mapping[str, CsvValue]]:
+    scan_id_text = str(scan_id)
+    for row, record in zip(rows, records, strict=True):
+        if record.file_record_id is None:
+            raise ValueError(f"analysis record {record.path!s} has no file_record_id")
+        yield {
+            "scan_id": scan_id_text,
+            "file_record_id": str(record.file_record_id),
+            **row,
+        }
+
+
+def _duplicate_records(analysis: LibraryAnalysis) -> Iterable[ScanRecord]:
+    for group in analysis.duplicate_groups:
+        yield from group.records
+
+
+def _missing_metadata_records(
+    analysis: LibraryAnalysis,
+) -> Iterable[ScanRecord]:
+    return (finding.record for finding in analysis.missing_metadata)
+
+
+def _validate_analysis_provenance(
+    analysis: LibraryAnalysis,
+    scan_id: UUID,
+) -> None:
+    for record in analysis.records:
+        if record.scan_id != scan_id:
+            raise ValueError(
+                f"analysis record {record.path!s} has a mismatched scan_id"
+            )
+        if record.file_record_id is None:
+            raise ValueError(f"analysis record {record.path!s} has no file_record_id")
+
+
+def versioned_analysis_report_specs(
+    analysis: LibraryAnalysis,
+    scan_id: UUID,
+) -> tuple[AnalysisReportSpec, ...]:
+    """Build schema 1 report specifications with scan-local provenance."""
+    _validate_analysis_provenance(analysis, scan_id)
+    return (
+        AnalysisReportSpec(
+            "library_analysis",
+            VERSIONED_ANALYSIS_REPORT_FILENAMES["library_analysis"],
+            LIBRARY_ANALYSIS_HEADER,
+            _with_scan_id(_analysis_rows(analysis), scan_id),
+        ),
+        AnalysisReportSpec(
+            "duplicate_candidates",
+            VERSIONED_ANALYSIS_REPORT_FILENAMES["duplicate_candidates"],
+            DUPLICATE_CANDIDATES_HEADER,
+            _with_file_provenance(
+                _duplicate_rows(analysis),
+                _duplicate_records(analysis),
+                scan_id,
+            ),
+        ),
+        AnalysisReportSpec(
+            "missing_metadata",
+            VERSIONED_ANALYSIS_REPORT_FILENAMES["missing_metadata"],
+            MISSING_METADATA_HEADER,
+            _with_file_provenance(
+                _missing_metadata_rows(analysis),
+                _missing_metadata_records(analysis),
+                scan_id,
+            ),
+        ),
+        AnalysisReportSpec(
+            "corrupt_files",
+            VERSIONED_ANALYSIS_REPORT_FILENAMES["corrupt_files"],
+            CORRUPT_FILES_HEADER,
+            _with_file_provenance(
+                _corrupt_file_rows(analysis),
+                analysis.corrupt_files,
+                scan_id,
+            ),
+        ),
+        AnalysisReportSpec(
+            "quality_summary",
+            VERSIONED_ANALYSIS_REPORT_FILENAMES["quality_summary"],
+            QUALITY_SUMMARY_HEADER,
+            _with_scan_id(_quality_rows(analysis), scan_id),
+        ),
+    )
 
 
 def write_analysis_reports(
