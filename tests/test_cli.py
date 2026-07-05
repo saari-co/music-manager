@@ -261,6 +261,38 @@ class CliRegressionTests(unittest.TestCase):
             for filename in ANALYSIS_REPORT_FILENAMES.values():
                 self.assertTrue((reports_directory / filename).is_file())
 
+    def test_analysis_cli_accepts_explicit_versioned_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            scan_id = "12345678-1234-4abc-8def-1234567890ab"
+            run_directory = root / "reports" / scan_id
+            shutil.copytree(
+                PROJECT_ROOT / "tests" / "fixtures" / "v0_3" / "valid",
+                run_directory,
+            )
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "analyze",
+                        "--scan-run",
+                        str(run_directory),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn(f"Reports directory: {run_directory}", stdout.getvalue())
+            artifacts = validate_artifact_set(run_directory / "scan_manifest.json")
+            self.assertEqual(
+                {
+                    entry.filename
+                    for entry in artifacts.manifest.artifacts.values()
+                    if entry.role == "derived"
+                },
+                set(ANALYSIS_REPORT_FILENAMES.values()),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

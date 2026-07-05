@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from music_manager.artifact_schema import validate_artifact_set
 from music_manager.cli import main
 
 
@@ -81,6 +82,40 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("Scan complete", output)
             self.assertIn(f"Reports directory: {run_directory}", output)
             self.assertIn("Scan state: complete", output)
+
+            analysis_stdout = io.StringIO()
+            with redirect_stdout(analysis_stdout):
+                analysis_exit_code = main(["analyze", "--scan-run", str(run_directory)])
+
+            self.assertEqual(analysis_exit_code, 0)
+            self.assertEqual(audio_path.read_bytes(), original_audio)
+            artifacts = validate_artifact_set(run_directory / "scan_manifest.json")
+            self.assertEqual(artifacts.manifest.state, "complete")
+            self.assertEqual(
+                {
+                    entry.filename
+                    for entry in artifacts.manifest.artifacts.values()
+                    if entry.role == "derived"
+                },
+                {
+                    "library_analysis.csv",
+                    "duplicate_candidates.csv",
+                    "missing_metadata.csv",
+                    "corrupt_files.csv",
+                    "quality_summary.csv",
+                },
+            )
+            for report_path in run_directory.iterdir():
+                if report_path.is_file():
+                    self.assertNotIn(
+                        str(root),
+                        report_path.read_text(encoding="utf-8"),
+                    )
+            self.assertIn("Analysis complete", analysis_stdout.getvalue())
+            self.assertIn(
+                f"Reports directory: {run_directory}",
+                analysis_stdout.getvalue(),
+            )
 
 
 if __name__ == "__main__":
