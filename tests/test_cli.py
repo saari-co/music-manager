@@ -69,7 +69,7 @@ class CliRegressionTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stderr, "")
                 self.assertIn("usage: music-manager", result.stdout)
-                self.assertIn("{scan,analyze}", result.stdout)
+                self.assertIn("{scan,analyze,match}", result.stdout)
                 self.assertIn(
                     "Music files are never renamed, moved, copied, deleted, or edited.",
                     result.stdout,
@@ -292,6 +292,125 @@ class CliRegressionTests(unittest.TestCase):
                 },
                 set(ANALYSIS_REPORT_FILENAMES.values()),
             )
+
+    def test_match_cli_is_default_off_before_artifact_access(self) -> None:
+        stderr = io.StringIO()
+        with (
+            mock.patch(
+                "music_manager.matcher.validate_artifact_set",
+                side_effect=AssertionError("artifact validation accessed"),
+            ) as validate,
+            redirect_stderr(stderr),
+        ):
+            exit_code = main(
+                [
+                    "match",
+                    "--scan-run",
+                    "/private/nonexistent/run",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        validate.assert_not_called()
+        self.assertIn("MusicBrainz is disabled", stderr.getvalue())
+
+    def test_match_cli_preflight_makes_no_requests_or_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = root / "12345678-1234-4abc-8def-1234567890ab"
+            shutil.copytree(
+                PROJECT_ROOT / "tests" / "fixtures" / "v0_3" / "valid",
+                run_directory,
+            )
+            before = {
+                path.relative_to(run_directory): path.read_bytes()
+                for path in run_directory.iterdir()
+            }
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = main(
+                    [
+                        "match",
+                        "--scan-run",
+                        str(run_directory),
+                        "--musicbrainz",
+                    ]
+                )
+
+            after = {
+                path.relative_to(run_directory): path.read_bytes()
+                for path in run_directory.iterdir()
+            }
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertEqual(after, before)
+            self.assertIn("Consent source: cli", stdout.getvalue())
+            self.assertIn("music-manager/0.3.0", stdout.getvalue())
+            self.assertIn("Network requests: 0", stdout.getvalue())
+            self.assertIn("Matching artifacts: 0", stdout.getvalue())
+
+    def test_no_musicbrainz_cli_override_blocks_enabled_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            config_path = root / "music-manager.yml"
+            config_path.write_text(
+                "musicbrainz:\n  enabled: true\n",
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with (
+                mock.patch(
+                    "music_manager.matcher.validate_artifact_set",
+                    side_effect=AssertionError("artifact validation accessed"),
+                ) as validate,
+                redirect_stderr(stderr),
+            ):
+                exit_code = main(
+                    [
+                        "match",
+                        "--scan-run",
+                        "/private/nonexistent/run",
+                        "--config",
+                        str(config_path),
+                        "--no-musicbrainz",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 2)
+            validate.assert_not_called()
+            self.assertIn("MusicBrainz is disabled", stderr.getvalue())
+
+    def test_match_cli_accepts_persistent_config_consent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = root / "12345678-1234-4abc-8def-1234567890ab"
+            shutil.copytree(
+                PROJECT_ROOT / "tests" / "fixtures" / "v0_3" / "valid",
+                run_directory,
+            )
+            config_path = root / "music-manager.yml"
+            config_path.write_text(
+                "musicbrainz:\n  enabled: true\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "match",
+                        "--scan-run",
+                        str(run_directory),
+                        "--config",
+                        str(config_path),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Consent source: config", stdout.getvalue())
+            self.assertIn("Network requests: 0", stdout.getvalue())
 
 
 if __name__ == "__main__":

@@ -9,3 +9,7 @@ path_mode: relative
 ignore:
   - .DS_Store
   # - Music/Media.localized
+
+# External metadata access remains disabled unless explicitly opted in.
+musicbrainz:
+  enabled: false

@@ -11,15 +11,24 @@ import yaml
 
 DEFAULT_CONFIG_FILENAME = "music-manager.yml"
 PATH_MODES = {"absolute", "relative"}
-SUPPORTED_CONFIG_KEYS = {"ignore", "path_mode"}
+SUPPORTED_CONFIG_KEYS = {"ignore", "musicbrainz", "path_mode"}
+SUPPORTED_MUSICBRAINZ_KEYS = {"enabled"}
+
+
+@dataclass(frozen=True)
+class MusicBrainzConfig:
+    """Explicit external-service consent, disabled unless opted in."""
+
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    """Settings currently supported by scanning and analysis."""
+    """Validated local settings for current and opt-in future operations."""
 
     path_mode: str = "relative"
     ignore: Tuple[str, ...] = (".DS_Store",)
+    musicbrainz: MusicBrainzConfig = MusicBrainzConfig()
 
 
 def default_config_path() -> Path:
@@ -46,6 +55,24 @@ def _validate_keys(data: Mapping[str, Any]) -> None:
     label = "key" if len(unknown_keys) == 1 else "keys"
     names = ", ".join(str(key) for key in unknown_keys)
     raise ValueError(f"unknown configuration {label}: {names}")
+
+
+def _musicbrainz_config(data: Mapping[str, Any]) -> MusicBrainzConfig:
+    value = data.get("musicbrainz", {})
+    if not isinstance(value, dict):
+        raise ValueError("musicbrainz configuration must contain a YAML mapping")
+    unknown_keys = sorted(
+        (key for key in value if key not in SUPPORTED_MUSICBRAINZ_KEYS),
+        key=str,
+    )
+    if unknown_keys:
+        label = "key" if len(unknown_keys) == 1 else "keys"
+        names = ", ".join(str(key) for key in unknown_keys)
+        raise ValueError(f"unknown musicbrainz configuration {label}: {names}")
+    enabled = value.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("musicbrainz.enabled must be true or false")
+    return MusicBrainzConfig(enabled=enabled)
 
 
 def load_config(path: Optional[Path] = None) -> AppConfig:
@@ -80,4 +107,5 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
     return AppConfig(
         path_mode=path_mode,
         ignore=tuple(pattern.strip() for pattern in ignore),
+        musicbrainz=_musicbrainz_config(data),
     )

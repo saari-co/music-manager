@@ -20,8 +20,9 @@ from uuid import RFC_4122, UUID, uuid5
 
 
 SCHEMA_VERSION = "1.0.0"
+MATCHING_SCHEMA_VERSION = "1.1.0"
 SUPPORTED_SCHEMA_MAJOR = 1
-SUPPORTED_SCHEMA_MINOR = 0
+SUPPORTED_SCHEMA_MINOR = 1
 
 LIBRARY_SCAN_HEADER = (
     "scan_id",
@@ -63,6 +64,56 @@ SCAN_ERRORS_HEADER = (
     "error_code",
     "message",
 )
+MUSICBRAINZ_ALBUM_GROUPS_HEADER = (
+    "scan_id",
+    "album_group_id",
+    "file_record_id",
+)
+MUSICBRAINZ_ALBUM_CANDIDATES_HEADER = (
+    "scan_id",
+    "album_group_id",
+    "candidate_rank",
+    "release_group_mbid",
+    "title",
+    "artist_credit",
+    "first_release_date",
+    "primary_type",
+    "secondary_types_json",
+    "musicbrainz_search_score",
+    "title_similarity",
+    "artist_similarity",
+    "year_similarity",
+    "confidence_score",
+)
+MUSICBRAINZ_RECORDING_CANDIDATES_HEADER = (
+    "scan_id",
+    "file_record_id",
+    "candidate_rank",
+    "recording_mbid",
+    "title",
+    "artist_credit",
+    "duration_ms",
+    "first_release_date",
+    "matched_release_mbid",
+    "matched_release_title",
+    "musicbrainz_search_score",
+    "title_similarity",
+    "artist_similarity",
+    "duration_similarity",
+    "album_similarity",
+    "confidence_score",
+)
+MUSICBRAINZ_MATCH_RESULTS_HEADER = (
+    "scan_id",
+    "subject_type",
+    "subject_id",
+    "status",
+    "candidate_count",
+    "top_candidate_mbid",
+    "top_confidence_score",
+    "confidence_margin",
+    "reason_code",
+)
 
 MANIFEST_STATES = frozenset({"running", "complete", "incomplete", "failed"})
 ARTIFACT_ROLES = frozenset({"primary", "derived"})
@@ -70,16 +121,62 @@ FILE_TYPES = frozenset({"audio", "archive"})
 RECORD_STATUSES = frozenset({"ok", "error"})
 ERROR_STAGES = frozenset({"discovery", "stat", "metadata", "archive", "finalization"})
 ERROR_SEVERITIES = frozenset({"info", "error", "fatal"})
+MATCH_SUBJECT_TYPES = frozenset({"album", "recording"})
+MATCH_STATUSES = frozenset(
+    {"matched", "ambiguous", "unmatched", "not_eligible", "error"}
+)
+MATCH_REASON_CODES = frozenset(
+    {
+        "high_confidence_with_margin",
+        "high_confidence_close_candidates",
+        "medium_confidence",
+        "below_confidence_threshold",
+        "no_candidates",
+        "missing_artist",
+        "missing_title",
+        "unreadable_record",
+        "request_failed",
+        "malformed_response",
+    }
+)
 
 _ARTIFACT_SPECS = {
-    "library_scan": ("library_scan.csv", "primary"),
-    "scan_errors": ("scan_errors.csv", "primary"),
-    "library_analysis": ("library_analysis.csv", "derived"),
-    "duplicate_candidates": ("duplicate_candidates.csv", "derived"),
-    "missing_metadata": ("missing_metadata.csv", "derived"),
-    "corrupt_files": ("corrupt_files.csv", "derived"),
-    "quality_summary": ("quality_summary.csv", "derived"),
+    "library_scan": ("library_scan.csv", "primary", 0),
+    "scan_errors": ("scan_errors.csv", "primary", 0),
+    "library_analysis": ("library_analysis.csv", "derived", 0),
+    "duplicate_candidates": ("duplicate_candidates.csv", "derived", 0),
+    "missing_metadata": ("missing_metadata.csv", "derived", 0),
+    "corrupt_files": ("corrupt_files.csv", "derived", 0),
+    "quality_summary": ("quality_summary.csv", "derived", 0),
+    "musicbrainz_album_groups": (
+        "musicbrainz_album_groups.csv",
+        "derived",
+        1,
+    ),
+    "musicbrainz_album_candidates": (
+        "musicbrainz_album_candidates.csv",
+        "derived",
+        1,
+    ),
+    "musicbrainz_recording_candidates": (
+        "musicbrainz_recording_candidates.csv",
+        "derived",
+        1,
+    ),
+    "musicbrainz_match_results": (
+        "musicbrainz_match_results.csv",
+        "derived",
+        1,
+    ),
 }
+MATCHING_ARTIFACT_NAMES = frozenset(
+    {
+        "musicbrainz_album_groups",
+        "musicbrainz_album_candidates",
+        "musicbrainz_recording_candidates",
+        "musicbrainz_match_results",
+    }
+)
 _MANIFEST_FIELDS = (
     "schema_version",
     "application_version",
@@ -121,6 +218,9 @@ _FINGERPRINT_RE = re.compile(r"^stat-v1:[0-9a-f]{64}$")
 _ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _EXTENSION_RE = re.compile(r"^\.[a-z0-9][a-z0-9._+-]*$")
+_PARTIAL_DATE_RE = re.compile(
+    r"^(?P<year>[0-9]{4})(?:-(?P<month>[0-9]{2})(?:-(?P<day>[0-9]{2}))?)?$"
+)
 
 _Row = TypeVar("_Row")
 
@@ -203,6 +303,13 @@ def _parse_schema_version(value: Any, location: str) -> str:
     return version
 
 
+def _schema_minor(version: str) -> int:
+    match = _SEMVER_RE.fullmatch(version)
+    if match is None:
+        raise AssertionError("schema version must be validated before use")
+    return int(match.group(2))
+
+
 def _parse_uuid(value: Any, location: str, *, version: int) -> UUID:
     text = _expect_text(value, location)
     try:
@@ -211,6 +318,17 @@ def _parse_uuid(value: Any, location: str, *, version: int) -> UUID:
         raise _error(location, f"must be a canonical UUIDv{version}") from error
     if str(parsed) != text or parsed.version != version or parsed.variant != RFC_4122:
         raise _error(location, f"must be a canonical lowercase UUIDv{version}")
+    return parsed
+
+
+def _parse_canonical_uuid(value: Any, location: str) -> UUID:
+    text = _expect_text(value, location)
+    try:
+        parsed = UUID(text)
+    except (ValueError, AttributeError) as error:
+        raise _error(location, "must be a canonical UUID") from error
+    if str(parsed) != text or parsed.variant != RFC_4122:
+        raise _error(location, "must be a canonical lowercase UUID")
     return parsed
 
 
@@ -329,6 +447,65 @@ def _parse_csv_decimal(
         raise _error(location, "must be a valid decimal") from error
 
 
+def _parse_fixed_decimal(
+    value: str,
+    location: str,
+    *,
+    nullable: bool,
+    places: int,
+    maximum: Decimal,
+) -> Decimal | None:
+    parsed = _parse_csv_decimal(value, location, nullable=nullable)
+    if parsed is None:
+        return None
+    if "." not in value or len(value.rsplit(".", 1)[1]) != places:
+        raise _error(location, f"must have exactly {places} fractional digits")
+    if parsed > maximum:
+        raise _error(location, f"must be at most {maximum}")
+    return parsed
+
+
+def _parse_partial_date(value: str, location: str) -> str:
+    if value == "":
+        return value
+    text = _parse_csv_text(value, location, nullable=False)
+    match = _PARTIAL_DATE_RE.fullmatch(text)
+    if match is None:
+        raise _error(location, "must use YYYY, YYYY-MM, or YYYY-MM-DD")
+    month_text = match.group("month")
+    day_text = match.group("day")
+    if month_text is None:
+        return text
+    month = int(month_text)
+    if not 1 <= month <= 12:
+        raise _error(location, "contains an invalid month")
+    if day_text is not None:
+        try:
+            datetime(int(match.group("year")), month, int(day_text))
+        except ValueError as error:
+            raise _error(location, "contains an invalid calendar date") from error
+    return text
+
+
+def _parse_sorted_text_array(value: str, location: str) -> tuple[str, ...]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise _error(location, "must be a compact JSON string array") from error
+    if not isinstance(decoded, list):
+        raise _error(location, "must be a JSON array")
+    parsed = tuple(
+        _parse_csv_text(item, f"{location}[{index}]", nullable=False)
+        for index, item in enumerate(decoded)
+    )
+    if tuple(sorted(set(parsed))) != parsed:
+        raise _error(location, "must contain unique strings in lexical order")
+    canonical = json.dumps(list(parsed), ensure_ascii=False, separators=(",", ":"))
+    if value != canonical:
+        raise _error(location, "must use compact canonical JSON")
+    return parsed
+
+
 def _parse_csv_bool(
     value: str,
     location: str,
@@ -420,12 +597,18 @@ class ArtifactEntry:
         value: Any,
         *,
         location: str,
+        schema_minor: int,
     ) -> "ArtifactEntry":
         data = _expect_mapping(value, location)
         expected_spec = _ARTIFACT_SPECS.get(logical_name)
         if expected_spec is None:
             raise _error(location, f"unknown artifact name {logical_name!r}")
-        expected_filename, expected_role = expected_spec
+        expected_filename, expected_role, minimum_minor = expected_spec
+        if schema_minor < minimum_minor:
+            raise _error(
+                location,
+                f"{logical_name!r} requires schema 1.{minimum_minor} or newer",
+            )
         optional = ("configuration",) if expected_role == "derived" else ()
         _validate_keys(data, _ARTIFACT_FIELDS, location, optional=optional)
 
@@ -649,6 +832,7 @@ class ScanManifest:
                 name,
                 artifact_value,
                 location=f"{location}.artifacts.{name}",
+                schema_minor=_schema_minor(schema_version),
             )
             for name, artifact_value in artifact_values.items()
         }
@@ -717,6 +901,14 @@ class ScanManifest:
             raise _error(
                 f"{location}.artifacts",
                 f"{self.state} scans cannot register derived artifacts",
+            )
+
+        matching_artifacts = MATCHING_ARTIFACT_NAMES.intersection(self.artifacts)
+        if matching_artifacts and matching_artifacts != MATCHING_ARTIFACT_NAMES:
+            missing = sorted(MATCHING_ARTIFACT_NAMES - matching_artifacts)
+            raise _error(
+                f"{location}.artifacts",
+                f"matching artifact family is missing: {', '.join(missing)}",
             )
 
         library_entry = self.artifacts.get("library_scan")
@@ -1106,12 +1298,503 @@ class ScanErrorRow:
 
 
 @dataclass(frozen=True)
+class MusicBrainzAlbumGroupRow:
+    """One schema 1.1 album-group membership row."""
+
+    scan_id: UUID
+    album_group_id: UUID
+    file_record_id: UUID
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "musicbrainz_album_groups.csv row",
+    ) -> "MusicBrainzAlbumGroupRow":
+        _validate_csv_row_mapping(value, MUSICBRAINZ_ALBUM_GROUPS_HEADER, location)
+        return cls(
+            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
+            album_group_id=_parse_uuid(
+                value["album_group_id"],
+                f"{location}.album_group_id",
+                version=5,
+            ),
+            file_record_id=_parse_uuid(
+                value["file_record_id"],
+                f"{location}.file_record_id",
+                version=5,
+            ),
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+        return {
+            "scan_id": str(self.scan_id),
+            "album_group_id": str(self.album_group_id),
+            "file_record_id": str(self.file_record_id),
+        }
+
+
+@dataclass(frozen=True)
+class MusicBrainzAlbumCandidateRow:
+    """One schema 1.1 MusicBrainz release-group candidate row."""
+
+    scan_id: UUID
+    album_group_id: UUID
+    candidate_rank: int
+    release_group_mbid: UUID
+    title: str
+    artist_credit: str
+    first_release_date: str
+    primary_type: str
+    secondary_types: tuple[str, ...]
+    musicbrainz_search_score: int
+    title_similarity: Decimal
+    artist_similarity: Decimal
+    year_similarity: Decimal
+    confidence_score: Decimal
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "musicbrainz_album_candidates.csv row",
+    ) -> "MusicBrainzAlbumCandidateRow":
+        _validate_csv_row_mapping(
+            value,
+            MUSICBRAINZ_ALBUM_CANDIDATES_HEADER,
+            location,
+        )
+        candidate_rank = _parse_csv_integer(
+            value["candidate_rank"],
+            f"{location}.candidate_rank",
+            nullable=False,
+            nonnegative=True,
+        )
+        if candidate_rank is None or not 1 <= candidate_rank <= 10:
+            raise _error(
+                f"{location}.candidate_rank",
+                "must be between 1 and 10",
+            )
+        search_score = _parse_csv_integer(
+            value["musicbrainz_search_score"],
+            f"{location}.musicbrainz_search_score",
+            nullable=False,
+            nonnegative=True,
+        )
+        if search_score is None or search_score > 100:
+            raise _error(
+                f"{location}.musicbrainz_search_score",
+                "must be between 0 and 100",
+            )
+        title_similarity = _parse_fixed_decimal(
+            value["title_similarity"],
+            f"{location}.title_similarity",
+            nullable=False,
+            places=4,
+            maximum=Decimal("1"),
+        )
+        artist_similarity = _parse_fixed_decimal(
+            value["artist_similarity"],
+            f"{location}.artist_similarity",
+            nullable=False,
+            places=4,
+            maximum=Decimal("1"),
+        )
+        year_similarity = _parse_fixed_decimal(
+            value["year_similarity"],
+            f"{location}.year_similarity",
+            nullable=False,
+            places=4,
+            maximum=Decimal("1"),
+        )
+        confidence_score = _parse_fixed_decimal(
+            value["confidence_score"],
+            f"{location}.confidence_score",
+            nullable=False,
+            places=2,
+            maximum=Decimal("100"),
+        )
+        if (
+            title_similarity is None
+            or artist_similarity is None
+            or year_similarity is None
+            or confidence_score is None
+        ):
+            raise AssertionError("non-nullable candidate values must be present")
+        return cls(
+            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
+            album_group_id=_parse_uuid(
+                value["album_group_id"],
+                f"{location}.album_group_id",
+                version=5,
+            ),
+            candidate_rank=candidate_rank,
+            release_group_mbid=_parse_canonical_uuid(
+                value["release_group_mbid"],
+                f"{location}.release_group_mbid",
+            ),
+            title=_parse_csv_text(value["title"], f"{location}.title", nullable=False),
+            artist_credit=_parse_csv_text(
+                value["artist_credit"],
+                f"{location}.artist_credit",
+                nullable=True,
+            ),
+            first_release_date=_parse_partial_date(
+                value["first_release_date"],
+                f"{location}.first_release_date",
+            ),
+            primary_type=_parse_csv_text(
+                value["primary_type"],
+                f"{location}.primary_type",
+                nullable=True,
+            ),
+            secondary_types=_parse_sorted_text_array(
+                value["secondary_types_json"],
+                f"{location}.secondary_types_json",
+            ),
+            musicbrainz_search_score=search_score,
+            title_similarity=title_similarity,
+            artist_similarity=artist_similarity,
+            year_similarity=year_similarity,
+            confidence_score=confidence_score,
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+        return {
+            "scan_id": str(self.scan_id),
+            "album_group_id": str(self.album_group_id),
+            "candidate_rank": str(self.candidate_rank),
+            "release_group_mbid": str(self.release_group_mbid),
+            "title": self.title,
+            "artist_credit": self.artist_credit,
+            "first_release_date": self.first_release_date,
+            "primary_type": self.primary_type,
+            "secondary_types_json": json.dumps(
+                list(self.secondary_types),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            "musicbrainz_search_score": str(self.musicbrainz_search_score),
+            "title_similarity": str(self.title_similarity),
+            "artist_similarity": str(self.artist_similarity),
+            "year_similarity": str(self.year_similarity),
+            "confidence_score": str(self.confidence_score),
+        }
+
+
+@dataclass(frozen=True)
+class MusicBrainzRecordingCandidateRow:
+    """One schema 1.1 MusicBrainz recording candidate row."""
+
+    scan_id: UUID
+    file_record_id: UUID
+    candidate_rank: int
+    recording_mbid: UUID
+    title: str
+    artist_credit: str
+    duration_ms: int | None
+    first_release_date: str
+    matched_release_mbid: UUID | None
+    matched_release_title: str
+    musicbrainz_search_score: int
+    title_similarity: Decimal
+    artist_similarity: Decimal
+    duration_similarity: Decimal
+    album_similarity: Decimal
+    confidence_score: Decimal
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "musicbrainz_recording_candidates.csv row",
+    ) -> "MusicBrainzRecordingCandidateRow":
+        _validate_csv_row_mapping(
+            value,
+            MUSICBRAINZ_RECORDING_CANDIDATES_HEADER,
+            location,
+        )
+        candidate_rank = _parse_csv_integer(
+            value["candidate_rank"],
+            f"{location}.candidate_rank",
+            nullable=False,
+            nonnegative=True,
+        )
+        if candidate_rank is None or not 1 <= candidate_rank <= 10:
+            raise _error(
+                f"{location}.candidate_rank",
+                "must be between 1 and 10",
+            )
+        duration_ms = _parse_csv_integer(
+            value["duration_ms"],
+            f"{location}.duration_ms",
+            nullable=True,
+            nonnegative=True,
+        )
+        search_score = _parse_csv_integer(
+            value["musicbrainz_search_score"],
+            f"{location}.musicbrainz_search_score",
+            nullable=False,
+            nonnegative=True,
+        )
+        if search_score is None or search_score > 100:
+            raise _error(
+                f"{location}.musicbrainz_search_score",
+                "must be between 0 and 100",
+            )
+        release_mbid_text = value["matched_release_mbid"]
+        release_title = _parse_csv_text(
+            value["matched_release_title"],
+            f"{location}.matched_release_title",
+            nullable=True,
+        )
+        if (release_mbid_text == "") != (release_title == ""):
+            raise _error(
+                location,
+                "matched release MBID and title must both be set or empty",
+            )
+        release_mbid = (
+            None
+            if release_mbid_text == ""
+            else _parse_canonical_uuid(
+                release_mbid_text,
+                f"{location}.matched_release_mbid",
+            )
+        )
+        similarities: dict[str, Decimal] = {}
+        for field_name in (
+            "title_similarity",
+            "artist_similarity",
+            "duration_similarity",
+            "album_similarity",
+        ):
+            parsed = _parse_fixed_decimal(
+                value[field_name],
+                f"{location}.{field_name}",
+                nullable=False,
+                places=4,
+                maximum=Decimal("1"),
+            )
+            if parsed is None:
+                raise AssertionError("non-nullable similarity must be present")
+            similarities[field_name] = parsed
+        confidence_score = _parse_fixed_decimal(
+            value["confidence_score"],
+            f"{location}.confidence_score",
+            nullable=False,
+            places=2,
+            maximum=Decimal("100"),
+        )
+        if confidence_score is None:
+            raise AssertionError("non-nullable confidence must be present")
+        return cls(
+            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
+            file_record_id=_parse_uuid(
+                value["file_record_id"],
+                f"{location}.file_record_id",
+                version=5,
+            ),
+            candidate_rank=candidate_rank,
+            recording_mbid=_parse_canonical_uuid(
+                value["recording_mbid"], f"{location}.recording_mbid"
+            ),
+            title=_parse_csv_text(value["title"], f"{location}.title", nullable=False),
+            artist_credit=_parse_csv_text(
+                value["artist_credit"],
+                f"{location}.artist_credit",
+                nullable=True,
+            ),
+            duration_ms=duration_ms,
+            first_release_date=_parse_partial_date(
+                value["first_release_date"],
+                f"{location}.first_release_date",
+            ),
+            matched_release_mbid=release_mbid,
+            matched_release_title=release_title,
+            musicbrainz_search_score=search_score,
+            title_similarity=similarities["title_similarity"],
+            artist_similarity=similarities["artist_similarity"],
+            duration_similarity=similarities["duration_similarity"],
+            album_similarity=similarities["album_similarity"],
+            confidence_score=confidence_score,
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+
+        def optional(value: object | None) -> str:
+            return "" if value is None else str(value)
+
+        return {
+            "scan_id": str(self.scan_id),
+            "file_record_id": str(self.file_record_id),
+            "candidate_rank": str(self.candidate_rank),
+            "recording_mbid": str(self.recording_mbid),
+            "title": self.title,
+            "artist_credit": self.artist_credit,
+            "duration_ms": optional(self.duration_ms),
+            "first_release_date": self.first_release_date,
+            "matched_release_mbid": optional(self.matched_release_mbid),
+            "matched_release_title": self.matched_release_title,
+            "musicbrainz_search_score": str(self.musicbrainz_search_score),
+            "title_similarity": str(self.title_similarity),
+            "artist_similarity": str(self.artist_similarity),
+            "duration_similarity": str(self.duration_similarity),
+            "album_similarity": str(self.album_similarity),
+            "confidence_score": str(self.confidence_score),
+        }
+
+
+@dataclass(frozen=True)
+class MusicBrainzMatchResultRow:
+    """One schema 1.1 MusicBrainz subject result row."""
+
+    scan_id: UUID
+    subject_type: str
+    subject_id: UUID
+    status: str
+    candidate_count: int
+    top_candidate_mbid: UUID | None
+    top_confidence_score: Decimal | None
+    confidence_margin: Decimal | None
+    reason_code: str
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "musicbrainz_match_results.csv row",
+    ) -> "MusicBrainzMatchResultRow":
+        _validate_csv_row_mapping(value, MUSICBRAINZ_MATCH_RESULTS_HEADER, location)
+        subject_type = value["subject_type"]
+        if subject_type not in MATCH_SUBJECT_TYPES:
+            raise _error(
+                f"{location}.subject_type",
+                f"must be one of: {', '.join(sorted(MATCH_SUBJECT_TYPES))}",
+            )
+        status = value["status"]
+        if status not in MATCH_STATUSES:
+            raise _error(
+                f"{location}.status",
+                f"must be one of: {', '.join(sorted(MATCH_STATUSES))}",
+            )
+        candidate_count = _parse_csv_integer(
+            value["candidate_count"],
+            f"{location}.candidate_count",
+            nullable=False,
+            nonnegative=True,
+        )
+        if candidate_count is None or candidate_count > 10:
+            raise _error(
+                f"{location}.candidate_count",
+                "must be between 0 and 10",
+            )
+        candidate_mbid_text = value["top_candidate_mbid"]
+        top_candidate_mbid = (
+            None
+            if candidate_mbid_text == ""
+            else _parse_canonical_uuid(
+                candidate_mbid_text,
+                f"{location}.top_candidate_mbid",
+            )
+        )
+        top_confidence_score = _parse_fixed_decimal(
+            value["top_confidence_score"],
+            f"{location}.top_confidence_score",
+            nullable=True,
+            places=2,
+            maximum=Decimal("100"),
+        )
+        confidence_margin = _parse_fixed_decimal(
+            value["confidence_margin"],
+            f"{location}.confidence_margin",
+            nullable=True,
+            places=2,
+            maximum=Decimal("100"),
+        )
+        top_values_present = (
+            top_candidate_mbid is not None,
+            top_confidence_score is not None,
+            confidence_margin is not None,
+        )
+        if len(set(top_values_present)) != 1:
+            raise _error(
+                location,
+                "top candidate MBID, confidence, and margin must all be set or empty",
+            )
+        if candidate_count == 0 and any(top_values_present):
+            raise _error(location, "zero candidates require empty top-candidate fields")
+        if candidate_count > 0 and not all(top_values_present):
+            raise _error(
+                location,
+                "one or more candidates require top-candidate fields",
+            )
+        if status in {"matched", "ambiguous"} and candidate_count == 0:
+            raise _error(
+                f"{location}.status",
+                f"{status} results require at least one candidate",
+            )
+        if status in {"not_eligible", "error"} and candidate_count != 0:
+            raise _error(
+                f"{location}.candidate_count",
+                f"{status} results cannot contain candidates",
+            )
+        reason_code = value["reason_code"]
+        if reason_code not in MATCH_REASON_CODES:
+            raise _error(
+                f"{location}.reason_code",
+                f"must be one of: {', '.join(sorted(MATCH_REASON_CODES))}",
+            )
+        return cls(
+            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
+            subject_type=subject_type,
+            subject_id=_parse_uuid(
+                value["subject_id"], f"{location}.subject_id", version=5
+            ),
+            status=status,
+            candidate_count=candidate_count,
+            top_candidate_mbid=top_candidate_mbid,
+            top_confidence_score=top_confidence_score,
+            confidence_margin=confidence_margin,
+            reason_code=reason_code,
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+
+        def optional(value: object | None) -> str:
+            return "" if value is None else str(value)
+
+        return {
+            "scan_id": str(self.scan_id),
+            "subject_type": self.subject_type,
+            "subject_id": str(self.subject_id),
+            "status": self.status,
+            "candidate_count": str(self.candidate_count),
+            "top_candidate_mbid": optional(self.top_candidate_mbid),
+            "top_confidence_score": optional(self.top_confidence_score),
+            "confidence_margin": optional(self.confidence_margin),
+            "reason_code": self.reason_code,
+        }
+
+
+@dataclass(frozen=True)
 class ValidatedArtifactSet:
-    """A manifest and every validated primary row registered by it."""
+    """A manifest and every strictly validated registered artifact row."""
 
     manifest: ScanManifest
     library_rows: tuple[LibraryScanRow, ...]
     error_rows: tuple[ScanErrorRow, ...]
+    musicbrainz_album_group_rows: tuple[MusicBrainzAlbumGroupRow, ...]
+    musicbrainz_album_candidate_rows: tuple[MusicBrainzAlbumCandidateRow, ...]
+    musicbrainz_recording_candidate_rows: tuple[MusicBrainzRecordingCandidateRow, ...]
+    musicbrainz_match_result_rows: tuple[MusicBrainzMatchResultRow, ...]
 
 
 def _validate_header(
@@ -1180,6 +1863,58 @@ def load_scan_errors(path: Path) -> tuple[ScanErrorRow, ...]:
         path,
         SCAN_ERRORS_HEADER,
         lambda row, location: ScanErrorRow.from_csv_row(row, location=location),
+    )
+
+
+def load_musicbrainz_album_groups(
+    path: Path,
+) -> tuple[MusicBrainzAlbumGroupRow, ...]:
+    """Load and validate schema 1.1 album-group memberships."""
+    return _load_csv_rows(
+        path,
+        MUSICBRAINZ_ALBUM_GROUPS_HEADER,
+        lambda row, location: MusicBrainzAlbumGroupRow.from_csv_row(
+            row, location=location
+        ),
+    )
+
+
+def load_musicbrainz_album_candidates(
+    path: Path,
+) -> tuple[MusicBrainzAlbumCandidateRow, ...]:
+    """Load and validate schema 1.1 release-group candidates."""
+    return _load_csv_rows(
+        path,
+        MUSICBRAINZ_ALBUM_CANDIDATES_HEADER,
+        lambda row, location: MusicBrainzAlbumCandidateRow.from_csv_row(
+            row, location=location
+        ),
+    )
+
+
+def load_musicbrainz_recording_candidates(
+    path: Path,
+) -> tuple[MusicBrainzRecordingCandidateRow, ...]:
+    """Load and validate schema 1.1 recording candidates."""
+    return _load_csv_rows(
+        path,
+        MUSICBRAINZ_RECORDING_CANDIDATES_HEADER,
+        lambda row, location: MusicBrainzRecordingCandidateRow.from_csv_row(
+            row, location=location
+        ),
+    )
+
+
+def load_musicbrainz_match_results(
+    path: Path,
+) -> tuple[MusicBrainzMatchResultRow, ...]:
+    """Load and validate schema 1.1 per-subject match results."""
+    return _load_csv_rows(
+        path,
+        MUSICBRAINZ_MATCH_RESULTS_HEADER,
+        lambda row, location: MusicBrainzMatchResultRow.from_csv_row(
+            row, location=location
+        ),
     )
 
 
@@ -1300,6 +2035,12 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
     directory = manifest_path.parent
     library_rows: tuple[LibraryScanRow, ...] = ()
     error_rows: tuple[ScanErrorRow, ...] = ()
+    musicbrainz_album_group_rows: tuple[MusicBrainzAlbumGroupRow, ...] = ()
+    musicbrainz_album_candidate_rows: tuple[MusicBrainzAlbumCandidateRow, ...] = ()
+    musicbrainz_recording_candidate_rows: tuple[
+        MusicBrainzRecordingCandidateRow, ...
+    ] = ()
+    musicbrainz_match_result_rows: tuple[MusicBrainzMatchResultRow, ...] = ()
 
     for logical_name, entry in manifest.artifacts.items():
         artifact_path = directory / entry.filename
@@ -1310,6 +2051,24 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
         elif logical_name == "scan_errors":
             error_rows = load_scan_errors(artifact_path)
             actual_count = len(error_rows)
+        elif logical_name == "musicbrainz_album_groups":
+            musicbrainz_album_group_rows = load_musicbrainz_album_groups(artifact_path)
+            actual_count = len(musicbrainz_album_group_rows)
+        elif logical_name == "musicbrainz_album_candidates":
+            musicbrainz_album_candidate_rows = load_musicbrainz_album_candidates(
+                artifact_path
+            )
+            actual_count = len(musicbrainz_album_candidate_rows)
+        elif logical_name == "musicbrainz_recording_candidates":
+            musicbrainz_recording_candidate_rows = (
+                load_musicbrainz_recording_candidates(artifact_path)
+            )
+            actual_count = len(musicbrainz_recording_candidate_rows)
+        elif logical_name == "musicbrainz_match_results":
+            musicbrainz_match_result_rows = load_musicbrainz_match_results(
+                artifact_path
+            )
+            actual_count = len(musicbrainz_match_result_rows)
         else:
             _validate_derived_csv(artifact_path, entry, manifest.scan_id)
             continue
@@ -1321,11 +2080,42 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
             )
 
     _validate_primary_relationships(manifest, library_rows, error_rows)
+    _validate_matching_scan_ids(
+        manifest,
+        musicbrainz_album_group_rows,
+        musicbrainz_album_candidate_rows,
+        musicbrainz_recording_candidate_rows,
+        musicbrainz_match_result_rows,
+    )
     return ValidatedArtifactSet(
         manifest=manifest,
         library_rows=library_rows,
         error_rows=error_rows,
+        musicbrainz_album_group_rows=musicbrainz_album_group_rows,
+        musicbrainz_album_candidate_rows=musicbrainz_album_candidate_rows,
+        musicbrainz_recording_candidate_rows=musicbrainz_recording_candidate_rows,
+        musicbrainz_match_result_rows=musicbrainz_match_result_rows,
     )
+
+
+def _validate_matching_scan_ids(
+    manifest: ScanManifest,
+    album_group_rows: Sequence[MusicBrainzAlbumGroupRow],
+    album_candidate_rows: Sequence[MusicBrainzAlbumCandidateRow],
+    recording_candidate_rows: Sequence[MusicBrainzRecordingCandidateRow],
+    result_rows: Sequence[MusicBrainzMatchResultRow],
+) -> None:
+    for row in (
+        *album_group_rows,
+        *album_candidate_rows,
+        *recording_candidate_rows,
+        *result_rows,
+    ):
+        if row.scan_id != manifest.scan_id:
+            raise _error(
+                "MusicBrainz artifact row scan_id",
+                "does not match the manifest",
+            )
 
 
 def _validate_primary_relationships(
