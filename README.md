@@ -50,7 +50,7 @@ change.
 
 ## Current capabilities
 
-The current scanner can:
+The current schema 1 scanner can:
 
 - recursively discover MP3, FLAC, M4A, AAC, and WAV files;
 - treat every supported audio file under the selected scan root as part of one
@@ -58,9 +58,11 @@ The current scanner can:
 - read common tags, bitrate, duration, and file size with Mutagen;
 - detect ZIP archives without opening or extracting them;
 - continue past unreadable files and record errors; and
-- write a local CSV inventory and print a scan summary.
+- write a private, versioned `reports/<scan-id>/` artifact set and print its
+  directory and final state.
 
-The v0.2 analysis layer can read that scan CSV and:
+The analysis layer can read a complete or incomplete schema 1 run without
+accessing the source library and:
 
 - prioritize duplicate candidates using normalized artist, title, and
   duration, including matches found in different folders;
@@ -68,7 +70,12 @@ The v0.2 analysis layer can read that scan CSV and:
 - identify readable files with missing metadata;
 - isolate corrupt or unreadable scan rows;
 - calculate metadata completeness percentages;
-- write focused CSV reports without opening any referenced music file.
+- write focused CSV reports back into the selected run and register their
+  provenance in its manifest.
+
+Strict read-only compatibility remains available for the two documented v0.2
+CSV headers. Legacy analysis stays flat and unversioned and does not fabricate
+schema 1 identity or provenance.
 
 The scanner does not classify folders by music app, artist folder, download
 folder, or any other source guess. Every supported audio file under the
@@ -78,9 +85,8 @@ only.
 
 ## Planned capabilities
 
-Planned milestones, none of which are implemented yet, add:
+Later milestones, none of which are implemented yet, add:
 
-- v0.3: a durable, versioned scan and report contract;
 - v0.4: opt-in MusicBrainz matching with confidence scores;
 - v0.5: checksum-verified staging copies;
 - v0.6: approved renaming, retagging, artwork, and album normalization of
@@ -131,29 +137,56 @@ The compatibility launcher remains available:
 python scripts/scan_library.py --source /path/to/music
 ```
 
-All three scan commands write `reports/library_scan.csv`. The installed command
-also accepts the original `music-manager --source /path/to/music` form for
-compatibility.
+All three scan commands create a new exclusive directory:
 
-Analyze an existing scan:
+```text
+reports/<scan-id>/
+  scan_manifest.json
+  library_scan.csv
+  scan_errors.csv
+```
+
+The terminal output prints the exact `Reports directory` and final `Scan
+state`. No `latest` file or symlink is created, so retain the printed directory
+or select a run explicitly by its scan ID. The installed command also accepts
+the original `music-manager --source /path/to/music` form for compatibility.
+
+Analyze a versioned run by passing that directory:
+
+```bash
+music-manager analyze \
+  --scan-run reports/<scan-id>
+```
+
+Only `complete` and `incomplete` manifests are analyzable. A `running` run was
+abandoned before finalization, and a `failed` run has no usable inventory.
+Analysis reports are written into the selected run directory and registered in
+its `scan_manifest.json`.
+
+Analysis writes:
+
+- `reports/<scan-id>/library_analysis.csv`
+- `reports/<scan-id>/duplicate_candidates.csv`
+- `reports/<scan-id>/missing_metadata.csv`
+- `reports/<scan-id>/corrupt_files.csv`
+- `reports/<scan-id>/quality_summary.csv`
+
+Legacy analysis writes the same report filenames directly under `reports/`.
+
+### Recognizing legacy mode
+
+Use `--scan-report` only for an existing unversioned v0.2 CSV:
 
 ```bash
 music-manager analyze \
   --scan-report reports/library_scan.csv
 ```
 
-`--scan-report` is a strict, read-only compatibility path for the two documented
-legacy v0.2 CSV headers. It warns that output is flat and unversioned, does not
-invent scan IDs or manifests, and refuses reports beside a schema 1 manifest.
-Rescan the source library to create schema 1 artifacts with durable provenance.
-
-Analysis writes:
-
-- `reports/library_analysis.csv`
-- `reports/duplicate_candidates.csv`
-- `reports/missing_metadata.csv`
-- `reports/corrupt_files.csv`
-- `reports/quality_summary.csv`
+Legacy mode requires one of the two exact documented v0.2 headers and no
+sibling `scan_manifest.json`. The command prints `Compatibility mode: legacy
+v0.2 (unversioned)` and warns that the flat output has no durable provenance.
+It does not create a manifest or scan IDs and never modifies the input. Rescan
+the source library to create a selectable schema 1 run.
 
 The entire `reports/` directory is ignored by Git because generated reports can
 contain local paths and private library metadata. Sanitized, synthetic examples
@@ -161,8 +194,9 @@ live under [`examples/`](examples/).
 
 ### Paths and local configuration
 
-Generated CSV paths are relative by default. Use absolute paths only when a
-local workflow specifically requires them:
+Schema 1 scan and analysis artifacts always use source-relative paths.
+`path_mode: absolute` is rejected for versioned runs. Absolute output remains
+available only to an explicit legacy v0.2 compatibility analysis:
 
 ```bash
 music-manager analyze \
@@ -183,10 +217,11 @@ ignore:
   # - Music/Media.localized
 ```
 
-`path_mode` accepts `relative` or `absolute`. Ignore patterns are evaluated
-relative to the selected scan root and prune matching files or directories.
-The local `music-manager.yml` file is ignored by Git to prevent accidental
-publication of machine-specific rules.
+`path_mode` accepts `relative` or `absolute`, but `absolute` applies only to
+legacy `--scan-report` analysis. Ignore patterns are evaluated relative to the
+selected scan root and prune matching files or directories. The local
+`music-manager.yml` file is ignored by Git to prevent accidental publication of
+machine-specific rules.
 
 `Root Library total` is the count of all supported audio files found anywhere
 under the selected scan root, including unreadable files. Folder placement
@@ -240,7 +275,7 @@ Security reporting guidance is available in [SECURITY.md](SECURITY.md).
 | v0.1 | Released | Read-only scanning and CSV reporting |
 | v0.2 | Released | Duplicate-first library audit, quality, and corruption analysis |
 | v0.2.1 | Released | Packaging, CLI, development, configuration, documentation, and test cleanup |
-| v0.3 | Planned | Durable scan and report contract |
+| v0.3 | Unreleased | Durable scan and report contract |
 | v0.4 | Planned | Opt-in MusicBrainz matching and metadata confidence |
 | v0.5 | Planned | Checksum-verified staging library |
 | v0.6 | Planned | Safe organization engine for staged copies |

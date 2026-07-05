@@ -291,6 +291,48 @@ class ScanRunTests(unittest.TestCase):
             self.assertFalse(any(outcome.directory.glob(".*.tmp")))
             validate_artifact_set(outcome.directory / "scan_manifest.json")
 
+    def test_primary_artifact_replace_failure_finishes_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            (source / "Track.mp3").write_bytes(b"synthetic")
+            real_replace = os.replace
+            error_report_replacements = 0
+
+            def fail_first_error_report_replace(
+                source_path: Path,
+                target: Path,
+            ) -> None:
+                nonlocal error_report_replacements
+                if Path(target).name == "scan_errors.csv":
+                    error_report_replacements += 1
+                    if error_report_replacements == 1:
+                        raise OSError("injected primary artifact failure")
+                real_replace(source_path, target)
+
+            with mock.patch(
+                "music_manager.scan_runs.os.replace",
+                side_effect=fail_first_error_report_replace,
+            ):
+                outcome = create_scan_run(
+                    source,
+                    root / "reports",
+                    metadata_loader=lambda path: _FakeAudio(),
+                    scan_id_factory=lambda: FIRST_SCAN_ID,
+                    clock=_clock(0, 1, 2),
+                )
+
+            self.assertEqual(outcome.state, "failed")
+            self.assertEqual(error_report_replacements, 2)
+            self.assertFalse((outcome.directory / "library_scan.csv").exists())
+            self.assertTrue((outcome.directory / "scan_errors.csv").is_file())
+            self.assertFalse(any(outcome.directory.glob(".*.tmp")))
+            artifacts = validate_artifact_set(outcome.directory / "scan_manifest.json")
+            self.assertEqual(artifacts.manifest.state, "failed")
+            self.assertEqual(len(artifacts.error_rows), 1)
+            self.assertEqual(artifacts.error_rows[0].error_code, "scan_failed")
+
     def test_absolute_path_configuration_is_rejected_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()
