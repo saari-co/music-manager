@@ -86,6 +86,9 @@ All behavior remains local-first, read-only, and report-driven.
 
 **Status:** Planned
 
+- Review and accept the
+  [MusicBrainz matching contract](docs/v0.4-musicbrainz-decision.md) before
+  implementation.
 - Require explicit opt-in before any network access.
 - Send an identifiable application User-Agent.
 - Use a cached MusicBrainz client.
