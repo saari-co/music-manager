@@ -142,6 +142,11 @@ music-manager analyze \
   --scan-report reports/library_scan.csv
 ```
 
+`--scan-report` is a strict, read-only compatibility path for the two documented
+legacy v0.2 CSV headers. It warns that output is flat and unversioned, does not
+invent scan IDs or manifests, and refuses reports beside a schema 1 manifest.
+Rescan the source library to create schema 1 artifacts with durable provenance.
+
 Analysis writes:
 
 - `reports/library_analysis.csv`

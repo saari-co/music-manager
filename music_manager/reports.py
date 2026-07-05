@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import csv
+import math
+import ntpath
 import os
+from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
+from decimal import Decimal, InvalidOperation
+from pathlib import Path, PureWindowsPath
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 from uuid import UUID
 
@@ -30,8 +34,6 @@ CSV_FIELDNAMES = [
     "status",
     "error",
 ]
-# Kept for callers that need to construct a pre-audit-first scan fixture.
-# The reader accepts these extra columns but does not use them.
 LEGACY_SCAN_FIELDNAMES = [
     "path",
     "extension",
@@ -50,6 +52,12 @@ LEGACY_SCAN_FIELDNAMES = [
     "status",
     "error",
 ]
+SUPPORTED_LEGACY_SCAN_HEADERS = (
+    tuple(CSV_FIELDNAMES),
+    tuple(LEGACY_SCAN_FIELDNAMES),
+)
+LEGACY_FILE_TYPES = frozenset({"audio", "archive"})
+LEGACY_RECORD_STATUSES = frozenset({"ok", "error"})
 ANALYSIS_FIELDNAMES = ["metric", "value"]
 DUPLICATE_FIELDNAMES = [
     "duplicate_group_id",
@@ -119,6 +127,10 @@ VERSIONED_ANALYSIS_REPORT_FILENAMES = {
 }
 
 
+class LegacyReportValidationError(ValueError):
+    """Raised when an unversioned v0.2 scan report is malformed."""
+
+
 @dataclass(frozen=True)
 class AnalysisReportSpec:
     """One versioned analysis report ready for transactional staging."""
@@ -146,6 +158,227 @@ def _validate_path_mode(path_mode: str) -> None:
     if path_mode not in PATH_MODES:
         choices = ", ".join(sorted(PATH_MODES))
         raise ValueError(f"path mode must be one of: {choices}")
+
+
+def _legacy_error(location: str, message: str) -> LegacyReportValidationError:
+    return LegacyReportValidationError(f"{location}: {message}")
+
+
+def _validate_legacy_header(fieldnames: Sequence[str]) -> tuple[str, ...]:
+    header = tuple(fieldnames)
+    duplicates = sorted(name for name, count in Counter(header).items() if count > 1)
+    if duplicates:
+        raise _legacy_error(
+            "legacy scan header",
+            f"duplicate columns: {', '.join(duplicates)}",
+        )
+    if header in SUPPORTED_LEGACY_SCAN_HEADERS:
+        return header
+
+    allowed_columns = set().union(*SUPPORTED_LEGACY_SCAN_HEADERS)
+    unknown = [name for name in header if name not in allowed_columns]
+    if unknown:
+        raise _legacy_error(
+            "legacy scan header",
+            f"unknown columns: {', '.join(unknown)}",
+        )
+
+    extended_only = {"folder_depth", "is_loose_track"}
+    expected = (
+        tuple(LEGACY_SCAN_FIELDNAMES)
+        if extended_only.intersection(header)
+        else tuple(CSV_FIELDNAMES)
+    )
+    missing = [name for name in expected if name not in header]
+    if missing:
+        raise _legacy_error(
+            "legacy scan header",
+            f"missing required columns: {', '.join(missing)}",
+        )
+    raise _legacy_error(
+        "legacy scan header",
+        "must exactly match a documented v0.2 header, including column order",
+    )
+
+
+def _legacy_required_text(
+    row: Mapping[str, str],
+    field_name: str,
+    location: str,
+) -> str:
+    value = row[field_name]
+    if not value.strip():
+        raise _legacy_error(location, f"{field_name} must not be empty")
+    return value
+
+
+def _legacy_optional_integer(
+    row: Mapping[str, str],
+    field_name: str,
+    location: str,
+    *,
+    required: bool = False,
+) -> Optional[int]:
+    value = row[field_name].strip()
+    if not value:
+        if required:
+            raise _legacy_error(location, f"{field_name} must not be empty")
+        return None
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise _legacy_error(
+            location,
+            f"{field_name} must be a non-negative integer",
+        ) from error
+    if not parsed.is_finite() or parsed < 0 or parsed != parsed.to_integral_value():
+        raise _legacy_error(
+            location,
+            f"{field_name} must be a non-negative integer",
+        )
+    try:
+        return int(parsed)
+    except (OverflowError, ValueError) as error:
+        raise _legacy_error(
+            location,
+            f"{field_name} must be a non-negative integer",
+        ) from error
+
+
+def _legacy_optional_decimal(
+    row: Mapping[str, str],
+    field_name: str,
+    location: str,
+) -> Optional[float]:
+    value = row[field_name].strip()
+    if not value:
+        return None
+    try:
+        decimal_value = Decimal(value)
+        parsed = float(decimal_value)
+    except (InvalidOperation, OverflowError, ValueError) as error:
+        raise _legacy_error(
+            location,
+            f"{field_name} must be a finite non-negative decimal",
+        ) from error
+    if not decimal_value.is_finite() or decimal_value < 0 or not math.isfinite(parsed):
+        raise _legacy_error(
+            location,
+            f"{field_name} must be a finite non-negative decimal",
+        )
+    return parsed
+
+
+def _legacy_boolean(
+    row: Mapping[str, str],
+    field_name: str,
+    location: str,
+    *,
+    nullable: bool = False,
+) -> bool:
+    value = row[field_name].strip().casefold()
+    if not value and nullable:
+        return False
+    if value in {"1", "true", "yes"}:
+        return True
+    if value in {"0", "false", "no"}:
+        return False
+    raise _legacy_error(
+        location,
+        f"{field_name} must be a legacy boolean",
+    )
+
+
+def _legacy_choice(
+    row: Mapping[str, str],
+    field_name: str,
+    choices: frozenset[str],
+    location: str,
+) -> str:
+    value = row[field_name].strip().casefold()
+    if value not in choices:
+        expected = ", ".join(sorted(choices))
+        raise _legacy_error(
+            location,
+            f"{field_name} must be one of: {expected}",
+        )
+    return value
+
+
+def _legacy_record(
+    row: Mapping[str, str],
+    header: Sequence[str],
+    location: str,
+) -> ScanRecord:
+    for field_name, value in row.items():
+        if "\x00" in value:
+            raise _legacy_error(location, f"{field_name} must not contain NUL")
+
+    path = _legacy_required_text(row, "path", location)
+    extension = _legacy_required_text(row, "extension", location).strip().lower()
+    file_type = _legacy_choice(
+        row,
+        "file_type",
+        LEGACY_FILE_TYPES,
+        location,
+    )
+    status = _legacy_choice(
+        row,
+        "status",
+        LEGACY_RECORD_STATUSES,
+        location,
+    )
+    file_size_bytes = _legacy_optional_integer(
+        row,
+        "file_size_bytes",
+        location,
+    )
+    bitrate_kbps = _legacy_optional_decimal(
+        row,
+        "bitrate_kbps",
+        location,
+    )
+    duration_seconds = _legacy_optional_decimal(
+        row,
+        "duration_seconds",
+        location,
+    )
+    is_archive = _legacy_boolean(
+        row,
+        "is_archive",
+        location,
+        nullable=True,
+    )
+
+    if "folder_depth" in header:
+        _legacy_optional_integer(
+            row,
+            "folder_depth",
+            location,
+        )
+        _legacy_boolean(
+            row,
+            "is_loose_track",
+            location,
+            nullable=True,
+        )
+
+    return ScanRecord(
+        path=Path(path),
+        extension=extension,
+        file_type=file_type,
+        file_size_bytes=file_size_bytes,
+        artist=row["artist"].strip(),
+        title=row["title"].strip(),
+        album=row["album"].strip(),
+        date_year=row["date_year"].strip(),
+        track_number=row["track_number"].strip(),
+        bitrate_kbps=bitrate_kbps,
+        duration_seconds=duration_seconds,
+        is_archive=is_archive,
+        status=status,
+        error=row["error"].strip(),
+    )
 
 
 def _common_absolute_root(records: Sequence[ScanRecord]) -> Optional[Path]:
@@ -192,6 +425,76 @@ def _relative_error(
         sanitized = sanitized.replace(f"{prefix_text}{os.sep}", "")
         sanitized = sanitized.replace(prefix_text, "")
     return sanitized
+
+
+def _windows_absolute_path(path: Path) -> Optional[PureWindowsPath]:
+    if path.is_absolute():
+        return None
+    windows_path = PureWindowsPath(str(path))
+    return windows_path if windows_path.is_absolute() else None
+
+
+def _common_windows_root(
+    paths: Sequence[PureWindowsPath],
+) -> Optional[PureWindowsPath]:
+    if not paths:
+        return None
+    try:
+        common = PureWindowsPath(ntpath.commonpath([str(path) for path in paths]))
+    except ValueError:
+        return None
+    if all(path == common for path in paths):
+        return common.parent
+    return common
+
+
+def _relative_windows_path(
+    path: PureWindowsPath,
+    base: Optional[PureWindowsPath],
+) -> Path:
+    if base is not None and base != PureWindowsPath(path.anchor):
+        try:
+            return Path(path.relative_to(base).as_posix())
+        except ValueError:
+            pass
+    return Path(path.relative_to(path.anchor).as_posix())
+
+
+def _relative_windows_error(
+    error: str,
+    original_path: PureWindowsPath,
+    reported_path: Path,
+    base: Optional[PureWindowsPath],
+) -> str:
+    if not error:
+        return error
+    sanitized = error.replace(str(original_path), str(reported_path))
+    if base is not None and base != PureWindowsPath(base.anchor):
+        base_text = str(base)
+        sanitized = sanitized.replace(f"{base_text}\\", "")
+        sanitized = sanitized.replace(base_text, "")
+    return sanitized
+
+
+def _relativize_windows_records(records: Sequence[ScanRecord]) -> None:
+    windows_paths = [
+        windows_path
+        for record in records
+        if (windows_path := _windows_absolute_path(record.path)) is not None
+    ]
+    base = _common_windows_root(windows_paths)
+    for record in records:
+        original_path = _windows_absolute_path(record.path)
+        if original_path is None:
+            continue
+        reported_path = _relative_windows_path(original_path, base)
+        record.path = reported_path
+        record.error = _relative_windows_error(
+            record.error,
+            original_path,
+            reported_path,
+            base,
+        )
 
 
 def _write_scan_report(
@@ -245,25 +548,47 @@ def write_csv_report(
     )
 
 
-def read_scan_report(
+def read_legacy_scan_report(
     report_path: Path,
     path_mode: str = "relative",
 ) -> List[ScanRecord]:
-    """Load scan rows without opening any music paths referenced by the CSV."""
+    """Strictly load one unversioned v0.2 report without accessing music paths."""
     _validate_path_mode(path_mode)
-    with report_path.open(encoding="utf-8", newline="") as report_file:
-        reader = csv.DictReader(report_file)
-        fieldnames = set(reader.fieldnames or [])
-        missing_columns = [
-            field_name
-            for field_name in CSV_FIELDNAMES
-            if field_name not in fieldnames
-        ]
-        if missing_columns:
-            missing_list = ", ".join(missing_columns)
-            raise ValueError(f"scan report is missing columns: {missing_list}")
-        records = [ScanRecord.from_csv_row(row) for row in reader]
+    manifest_path = report_path.parent / "scan_manifest.json"
+    if manifest_path.exists() or manifest_path.is_symlink():
+        raise LegacyReportValidationError(
+            "legacy compatibility mode refuses a report with a sibling "
+            "scan_manifest.json; use --scan-run for schema 1 analysis"
+        )
 
+    with report_path.open(encoding="utf-8", newline="") as report_file:
+        reader = csv.reader(report_file, strict=True)
+        try:
+            header = _validate_legacy_header(next(reader))
+        except StopIteration as error:
+            raise _legacy_error(
+                "legacy scan header",
+                "report is empty",
+            ) from error
+
+        records: list[ScanRecord] = []
+        for cells in reader:
+            location = f"legacy scan row {reader.line_num}"
+            if len(cells) != len(header):
+                raise _legacy_error(
+                    location,
+                    f"expected {len(header)} columns, found {len(cells)}",
+                )
+            records.append(
+                _legacy_record(
+                    dict(zip(header, cells, strict=True)),
+                    header,
+                    location,
+                )
+            )
+
+    if path_mode == "relative":
+        _relativize_windows_records(records)
     relative_base = _common_absolute_root(records)
     for record in records:
         original_path = record.path
@@ -277,6 +602,14 @@ def read_scan_report(
                 relative_base,
             )
     return records
+
+
+def read_scan_report(
+    report_path: Path,
+    path_mode: str = "relative",
+) -> List[ScanRecord]:
+    """Compatibility alias for the strict legacy v0.2 report reader."""
+    return read_legacy_scan_report(report_path, path_mode=path_mode)
 
 
 def _analysis_rows(analysis: LibraryAnalysis) -> Iterable[Mapping[str, CsvValue]]:
@@ -463,10 +796,10 @@ def versioned_analysis_report_specs(
     )
 
 
-def write_analysis_reports(
+def write_legacy_analysis_reports(
     analysis: LibraryAnalysis, output_directory: Path
 ) -> Dict[str, Path]:
-    """Write the standard audit reports and return their paths."""
+    """Write flat v0.2 analysis reports without schema 1 provenance."""
     output_directory.mkdir(parents=True, exist_ok=True)
     paths = {
         name: output_directory / filename
@@ -490,3 +823,10 @@ def write_analysis_reports(
     for report_path, fieldnames, rows in report_specs:
         _write_rows(report_path, fieldnames, rows)
     return paths
+
+
+def write_analysis_reports(
+    analysis: LibraryAnalysis, output_directory: Path
+) -> Dict[str, Path]:
+    """Compatibility alias for the flat v0.2 analysis report writer."""
+    return write_legacy_analysis_reports(analysis, output_directory)
