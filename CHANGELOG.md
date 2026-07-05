@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Added schema 1.1 models and strict validators for the planned MusicBrainz
+  matching artifact family while retaining schema 1.0 compatibility.
+- Added default-off MusicBrainz configuration, consent preflight plumbing,
+  identifiable User-Agent construction, and an injectable client interface
+  without real network or matching behavior.
+
 ## [0.3.0] - 2026-07-04
 
 ### Added

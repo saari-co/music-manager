@@ -6,6 +6,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from music_manager.config import load_config
 from music_manager.reports import (
@@ -33,6 +34,34 @@ class ConfigTests(unittest.TestCase):
                 config.ignore,
                 ("Music/Media.localized", ".DS_Store"),
             )
+            self.assertFalse(config.musicbrainz.enabled)
+
+    def test_musicbrainz_is_default_off_and_requires_a_boolean(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            with mock.patch(
+                "music_manager.config.default_config_path",
+                return_value=directory / "missing.yml",
+            ):
+                self.assertFalse(load_config().musicbrainz.enabled)
+
+            enabled_path = directory / "enabled.yml"
+            enabled_path.write_text(
+                "musicbrainz:\n  enabled: true\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(load_config(enabled_path).musicbrainz.enabled)
+
+            for name, payload in (
+                ("not-mapping.yml", "musicbrainz: true\n"),
+                ("not-boolean.yml", "musicbrainz:\n  enabled: yes-please\n"),
+                ("unknown.yml", "musicbrainz:\n  endpoint: example.test\n"),
+            ):
+                with self.subTest(name=name):
+                    path = directory / name
+                    path.write_text(payload, encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "musicbrainz"):
+                        load_config(path)
 
     def test_rejects_unknown_top_level_key(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -70,16 +99,12 @@ class ConfigTests(unittest.TestCase):
             rows[1]["status"] = "error"
             rows[1]["error"] = f"cannot read {rows[1]['path']}"
             with report_path.open("w", encoding="utf-8", newline="") as report:
-                writer = csv.DictWriter(
-                    report, fieldnames=LEGACY_SCAN_FIELDNAMES
-                )
+                writer = csv.DictWriter(report, fieldnames=LEGACY_SCAN_FIELDNAMES)
                 writer.writeheader()
                 writer.writerows(rows)
 
             relative_records = read_scan_report(report_path)
-            absolute_records = read_scan_report(
-                report_path, path_mode="absolute"
-            )
+            absolute_records = read_scan_report(report_path, path_mode="absolute")
             self.assertTrue(
                 all(not record.path.is_absolute() for record in relative_records)
             )
@@ -94,6 +119,7 @@ class ConfigTests(unittest.TestCase):
                 "Incoming/Album/01.mp3",
                 relative_records[1].error,
             )
+
     @staticmethod
     def _legacy_row(path: Path) -> dict:
         return {

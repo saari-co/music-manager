@@ -1,4 +1,4 @@
-"""Command-line interface for scanning and analyzing music libraries."""
+"""Command-line interface for local scans, analysis, and opt-in preflight."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from music_manager.analyzer import (
     analyze_library,
 )
 from music_manager.config import AppConfig, PATH_MODES, load_config
+from music_manager.matcher import prepare_musicbrainz_preflight
 from music_manager.models import LibraryAnalysis, ScanResult
 from music_manager.reports import (
     read_legacy_scan_report,
@@ -62,11 +63,31 @@ def _add_config_arguments(
     )
 
 
+def _add_musicbrainz_consent_arguments(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--musicbrainz",
+        dest="musicbrainz_enabled",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="explicitly allow MusicBrainz access for this command",
+    )
+    group.add_argument(
+        "--no-musicbrainz",
+        dest="musicbrainz_enabled",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="disable MusicBrainz even when local config enables it",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the Music Manager argument parser."""
     parser = argparse.ArgumentParser(
         prog="music-manager",
-        description="Scan music libraries and analyze existing scan reports.",
+        description=(
+            "Scan music libraries, analyze reports, and prepare opt-in matching."
+        ),
         epilog="Music files are never renamed, moved, copied, deleted, or edited.",
     )
     _add_scan_arguments(parser, required=False)
@@ -108,6 +129,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=_non_negative_float,
         default=DEFAULT_DURATION_TOLERANCE,
         help="duplicate duration tolerance in seconds (default: 3)",
+    )
+
+    match_parser = subparsers.add_parser(
+        "match",
+        help="validate opt-in MusicBrainz preflight without making requests",
+    )
+    _add_config_arguments(match_parser, suppress_defaults=True)
+    _add_musicbrainz_consent_arguments(match_parser)
+    match_parser.add_argument(
+        "--scan-run",
+        type=Path,
+        required=True,
+        help="validated schema 1 reports/<scan-id> directory",
     )
     return parser
 
@@ -295,6 +329,50 @@ def _run_versioned_analysis(
     return 0
 
 
+def _run_musicbrainz_preflight(
+    scan_run_argument: Path,
+    *,
+    enabled: bool,
+    consent_source: str,
+) -> int:
+    """Validate opt-in matching boundaries without opening a client."""
+    scan_run = scan_run_argument.expanduser()
+    if not scan_run.is_absolute():
+        scan_run = Path.cwd() / scan_run
+    try:
+        preflight = prepare_musicbrainz_preflight(
+            scan_run,
+            enabled=enabled,
+            consent_source=consent_source,
+        )
+    except (OSError, csv.Error, ValueError) as error:
+        print(
+            f"Error: MusicBrainz preflight failed: {clean_error(error)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    print("MusicBrainz preflight complete")
+    print(f"Scan run: {preflight.run_directory}")
+    print(f"Consent source: {preflight.consent_source}")
+    print(f"User-Agent: {preflight.user_agent}")
+    print("Network requests: 0")
+    print("Matching artifacts: 0")
+    return 0
+
+
+def _musicbrainz_consent(
+    args: argparse.Namespace,
+    config: AppConfig,
+) -> tuple[bool, str]:
+    cli_value = getattr(args, "musicbrainz_enabled", None)
+    if cli_value is not None:
+        return cli_value, "cli"
+    if config.musicbrainz.enabled:
+        return True, "config"
+    return False, "default"
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run the command-line application and return a process exit code."""
     parser = build_parser()
@@ -306,6 +384,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
     path_mode = args.path_mode or config.path_mode
 
+    if args.command == "match":
+        enabled, consent_source = _musicbrainz_consent(args, config)
+        return _run_musicbrainz_preflight(
+            args.scan_run,
+            enabled=enabled,
+            consent_source=consent_source,
+        )
     if args.command == "analyze":
         if args.scan_run is not None:
             return _run_versioned_analysis(
@@ -323,7 +408,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.source:
         return _run_scan(args.source, config, path_mode)
 
-    parser.error("provide --source for a scan or choose the analyze command")
+    parser.error("provide --source for a scan or choose analyze or match")
     return 2
 
 
