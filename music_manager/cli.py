@@ -1,4 +1,4 @@
-"""Command-line interface for local scans, analysis, and opt-in preflight."""
+"""Command-line interface for local scans, analysis, and opt-in matching."""
 
 from __future__ import annotations
 
@@ -13,9 +13,18 @@ from music_manager.analyzer import (
     DEFAULT_DURATION_TOLERANCE,
     analyze_library,
 )
+from music_manager.artifact_schema import ArtifactValidationError
 from music_manager.config import AppConfig, PATH_MODES, load_config
-from music_manager.matcher import prepare_musicbrainz_preflight
+from music_manager.matcher import (
+    MusicBrainzConsentRequired,
+    MusicBrainzPreflight,
+)
 from music_manager.models import LibraryAnalysis, ScanResult
+from music_manager.musicbrainz_client import MusicBrainzClientError
+from music_manager.musicbrainz_orchestration import (
+    MusicBrainzMatchOutcome,
+    run_musicbrainz_match,
+)
 from music_manager.reports import (
     read_legacy_scan_report,
     write_legacy_analysis_reports,
@@ -133,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     match_parser = subparsers.add_parser(
         "match",
-        help="validate opt-in MusicBrainz preflight without making requests",
+        help="retrieve and report MusicBrainz candidates with explicit opt-in",
     )
     _add_config_arguments(match_parser, suppress_defaults=True)
     _add_musicbrainz_consent_arguments(match_parser)
@@ -329,35 +338,91 @@ def _run_versioned_analysis(
     return 0
 
 
-def _run_musicbrainz_preflight(
+def _print_musicbrainz_preflight(preflight: MusicBrainzPreflight) -> None:
+    """Report consent and the allowlisted request boundary before retrieval."""
+    print("MusicBrainz matching enabled")
+    print(f"Consent source: {preflight.consent_source}")
+    print(f"User-Agent: {preflight.user_agent}")
+    print("MusicBrainz may receive normalized artist, album, and title text.")
+    print(
+        "Paths, filenames, scan IDs, file-record IDs, and audio content are not sent."
+    )
+
+
+def _print_musicbrainz_summary(outcome: MusicBrainzMatchOutcome) -> None:
+    """Print allowlisted aggregate counts for a completed matching run."""
+    summary = outcome.summary
+    print("MusicBrainz matching complete")
+    print(f"Album groups: {summary.album_groups}")
+    print(f"Recordings: {summary.recordings}")
+    print(f"Ineligible recordings: {summary.ineligible_recordings}")
+    print(f"Candidates: {summary.candidates}")
+    print(f"Matched: {summary.matched}")
+    print(f"Ambiguous: {summary.ambiguous}")
+    print(f"Unmatched: {summary.unmatched}")
+    print(f"Not eligible: {summary.not_eligible}")
+    print(f"Errors: {summary.errors}")
+    print(f"Malformed response items: {summary.malformed_items}")
+    print(f"Output files: {', '.join(summary.output_files)}")
+
+
+def _musicbrainz_failure_message(error: BaseException) -> str:
+    """Return an allowlisted matching error without local or remote details."""
+    if isinstance(error, MusicBrainzConsentRequired):
+        return str(error)
+    if isinstance(error, ArtifactValidationError):
+        return "invalid scan artifact set"
+    if isinstance(error, MusicBrainzClientError):
+        return f"{type(error).__name__}: client initialization failed"
+    if isinstance(error, csv.Error):
+        return "matching artifact CSV processing failed"
+    if isinstance(error, OSError):
+        return "local matching resource access failed"
+    if isinstance(error, ValueError):
+        return "matching input or result validation failed"
+    return f"{type(error).__name__}: unexpected matching failure"
+
+
+def _run_musicbrainz_matching(
     scan_run_argument: Path,
     *,
     enabled: bool,
     consent_source: str,
 ) -> int:
-    """Validate opt-in matching boundaries without opening a client."""
+    """Run an explicitly enabled MusicBrainz match and report its outcome."""
     scan_run = scan_run_argument.expanduser()
     if not scan_run.is_absolute():
         scan_run = Path.cwd() / scan_run
     try:
-        preflight = prepare_musicbrainz_preflight(
+        outcome = run_musicbrainz_match(
             scan_run,
             enabled=enabled,
             consent_source=consent_source,
+            on_pre_request=_print_musicbrainz_preflight,
         )
     except (OSError, csv.Error, ValueError) as error:
         print(
-            f"Error: MusicBrainz preflight failed: {clean_error(error)}",
+            "Error: MusicBrainz matching failed: "
+            f"{_musicbrainz_failure_message(error)}",
             file=sys.stderr,
         )
         return 2
+    except Exception as error:
+        print(
+            "Error: MusicBrainz matching failed: "
+            f"{_musicbrainz_failure_message(error)}",
+            file=sys.stderr,
+        )
+        return 1
 
-    print("MusicBrainz preflight complete")
-    print(f"Scan run: {preflight.run_directory}")
-    print(f"Consent source: {preflight.consent_source}")
-    print(f"User-Agent: {preflight.user_agent}")
-    print("Network requests: 0")
-    print("Matching artifacts: 0")
+    _print_musicbrainz_summary(outcome)
+    if outcome.summary.errors:
+        print(
+            "Error: MusicBrainz matching completed with "
+            f"{outcome.summary.errors} subject error(s); reports were registered.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 
@@ -386,7 +451,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == "match":
         enabled, consent_source = _musicbrainz_consent(args, config)
-        return _run_musicbrainz_preflight(
+        return _run_musicbrainz_matching(
             args.scan_run,
             enabled=enabled,
             consent_source=consent_source,
