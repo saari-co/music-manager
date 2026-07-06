@@ -20,6 +20,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added deterministic in-memory MusicBrainz album and recording subject
   extraction plus injected-client candidate retrieval without scoring or
   artifact output.
+- Added deterministic in-memory MusicBrainz evidence scoring, candidate
+  ranking, confidence margins, and result classification without artifact
+  output or matching activation.
 
 ## [0.3.0] - 2026-07-04
 
