@@ -84,23 +84,25 @@ All behavior remains local-first, read-only, and report-driven.
 
 ## v0.4 — MusicBrainz Integration
 
-**Status:** Planned
+**Status:** Released
 
-- Review and accept the
-  [MusicBrainz matching contract](docs/v0.4-musicbrainz-decision.md) before
-  implementation.
-- Require explicit opt-in before any network access.
-- Send an identifiable application User-Agent.
-- Use a cached MusicBrainz client.
-- Apply deterministic rate limiting.
-- Implement retry and backoff behavior.
-- Produce album and recording candidates.
-- Record evidence used to evaluate each candidate.
-- Provide explainable confidence scoring.
-- Report ambiguous and unmatched results.
-- Cover matching behavior with fully mocked offline tests.
+- Added the reviewed
+  [MusicBrainz matching contract](docs/v0.4-musicbrainz-decision.md).
+- Added a separate `match` command with default-off CLI or configuration
+  consent and a `--no-musicbrainz` override.
+- Added an identifiable application User-Agent, persistent cache,
+  deterministic rate limiting, bounded retries, and circuit-open behavior.
+- Added album and recording candidate retrieval with reviewable scoring
+  evidence, confidence, and matched, ambiguous, unmatched, not-eligible, and
+  error results.
+- Added atomic schema 1.1 registration for the album-group, album-candidate,
+  recording-candidate, and match-result reports.
+- Covered matching behavior with injected fakes and fully offline tests.
 
-No metadata is applied automatically.
+MusicBrainz may receive normalized artist, album, and title text only. Paths,
+filenames, scan IDs, file-record IDs, audio, artwork, and source files are not
+sent. Matching writes reports only; it applies no metadata and makes no
+source-library changes.
 
 ## v0.5 — Safe Staging Library
 
