@@ -20,15 +20,15 @@ from music_manager.musicbrainz_subjects import (
 
 
 MUSICBRAINZ_SCORING_MODEL = "musicbrainz-confidence-v1"
+MUSICBRAINZ_MATCH_THRESHOLD = Decimal("85.00")
+MUSICBRAINZ_AMBIGUOUS_THRESHOLD = Decimal("60.00")
+MUSICBRAINZ_MARGIN_THRESHOLD = Decimal("10.00")
 
 _FACTOR_QUANTUM = Decimal("0.0001")
 _SCORE_QUANTUM = Decimal("0.01")
 _ZERO_FACTOR = Decimal("0.0000")
 _ONE_FACTOR = Decimal("1.0000")
 _ZERO_SCORE = Decimal("0.00")
-_MATCH_THRESHOLD = Decimal("85.00")
-_AMBIGUOUS_THRESHOLD = Decimal("60.00")
-_MARGIN_THRESHOLD = Decimal("10.00")
 _SUBJECT_TYPES = frozenset({"album", "recording"})
 _FAILURE_REASONS = frozenset({"request_failed", "malformed_response"})
 
@@ -353,13 +353,16 @@ def _classify_candidates(
     top_candidate_mbid, top_score = candidates[0]
     comparison_score = candidates[1][1] if len(candidates) > 1 else _ZERO_SCORE
     margin = _round_score(top_score - comparison_score)
-    if top_score >= _MATCH_THRESHOLD and margin >= _MARGIN_THRESHOLD:
+    if (
+        top_score >= MUSICBRAINZ_MATCH_THRESHOLD
+        and margin >= MUSICBRAINZ_MARGIN_THRESHOLD
+    ):
         status = "matched"
         reason_code = "high_confidence_with_margin"
-    elif top_score >= _MATCH_THRESHOLD:
+    elif top_score >= MUSICBRAINZ_MATCH_THRESHOLD:
         status = "ambiguous"
         reason_code = "high_confidence_close_candidates"
-    elif top_score >= _AMBIGUOUS_THRESHOLD:
+    elif top_score >= MUSICBRAINZ_AMBIGUOUS_THRESHOLD:
         status = "ambiguous"
         reason_code = "medium_confidence"
     else:
