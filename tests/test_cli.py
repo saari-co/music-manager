@@ -16,6 +16,7 @@ from unittest import mock
 
 from music_manager.artifact_schema import validate_artifact_set
 from music_manager.cli import main
+from music_manager.musicbrainz_client import MusicBrainzRequestError
 from music_manager.models import ScanRecord
 from music_manager.reports import (
     ANALYSIS_REPORT_FILENAMES,
@@ -24,6 +25,37 @@ from music_manager.reports import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class _EmptyMusicBrainzClient:
+    def __init__(self, *, album_error: Exception | None = None) -> None:
+        self.album_error = album_error
+        self.calls: list[str] = []
+        self.closed = False
+        self.malformed_item_count = 0
+
+    def search_release_groups(
+        self,
+        album_artist: str,
+        album_title: str,
+        limit: int,
+    ) -> tuple:
+        self.calls.append("album")
+        if self.album_error is not None:
+            raise self.album_error
+        return ()
+
+    def search_recordings(
+        self,
+        track_artist: str,
+        track_title: str,
+        limit: int,
+    ) -> tuple:
+        self.calls.append("recording")
+        return ()
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def _source_snapshot(source: Path) -> dict[str, Optional[bytes]]:
@@ -300,6 +332,15 @@ class CliRegressionTests(unittest.TestCase):
                 "music_manager.matcher.validate_artifact_set",
                 side_effect=AssertionError("artifact validation accessed"),
             ) as validate,
+            mock.patch(
+                "music_manager.musicbrainz_orchestration.ProductionMusicBrainzClient",
+                side_effect=AssertionError("client accessed"),
+            ) as client_factory,
+            mock.patch(
+                "music_manager.musicbrainz_orchestration."
+                "register_musicbrainz_artifacts",
+                side_effect=AssertionError("matching artifact accessed"),
+            ) as register,
             redirect_stderr(stderr),
         ):
             exit_code = main(
@@ -312,9 +353,11 @@ class CliRegressionTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         validate.assert_not_called()
+        client_factory.assert_not_called()
+        register.assert_not_called()
         self.assertIn("MusicBrainz is disabled", stderr.getvalue())
 
-    def test_match_cli_preflight_makes_no_requests_or_artifacts(self) -> None:
+    def test_match_cli_explicit_consent_runs_full_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             run_directory = root / "12345678-1234-4abc-8def-1234567890ab"
@@ -322,14 +365,19 @@ class CliRegressionTests(unittest.TestCase):
                 PROJECT_ROOT / "tests" / "fixtures" / "v0_3" / "valid",
                 run_directory,
             )
-            before = {
-                path.relative_to(run_directory): path.read_bytes()
-                for path in run_directory.iterdir()
-            }
+            client = _EmptyMusicBrainzClient()
             stdout = io.StringIO()
             stderr = io.StringIO()
 
-            with redirect_stdout(stdout), redirect_stderr(stderr):
+            with (
+                mock.patch(
+                    "music_manager.musicbrainz_orchestration."
+                    "ProductionMusicBrainzClient",
+                    return_value=client,
+                ) as factory,
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
                 exit_code = main(
                     [
                         "match",
@@ -339,17 +387,32 @@ class CliRegressionTests(unittest.TestCase):
                     ]
                 )
 
-            after = {
-                path.relative_to(run_directory): path.read_bytes()
-                for path in run_directory.iterdir()
-            }
             self.assertEqual(exit_code, 0)
             self.assertEqual(stderr.getvalue(), "")
-            self.assertEqual(after, before)
+            factory.assert_called_once()
+            self.assertEqual(client.calls, ["album", "recording"])
+            self.assertTrue(client.closed)
             self.assertIn("Consent source: cli", stdout.getvalue())
             self.assertIn("music-manager/0.3.0", stdout.getvalue())
-            self.assertIn("Network requests: 0", stdout.getvalue())
-            self.assertIn("Matching artifacts: 0", stdout.getvalue())
+            self.assertIn("Album groups: 1", stdout.getvalue())
+            self.assertIn("Recordings: 1", stdout.getvalue())
+            self.assertIn("Candidates: 0", stdout.getvalue())
+            self.assertIn("Unmatched: 2", stdout.getvalue())
+            self.assertIn("Errors: 0", stdout.getvalue())
+            artifacts = validate_artifact_set(run_directory / "scan_manifest.json")
+            self.assertEqual(
+                {
+                    "musicbrainz_album_groups",
+                    "musicbrainz_album_candidates",
+                    "musicbrainz_recording_candidates",
+                    "musicbrainz_match_results",
+                },
+                {
+                    name
+                    for name in artifacts.manifest.artifacts
+                    if name.startswith("musicbrainz_")
+                },
+            )
 
     def test_no_musicbrainz_cli_override_blocks_enabled_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -365,6 +428,16 @@ class CliRegressionTests(unittest.TestCase):
                     "music_manager.matcher.validate_artifact_set",
                     side_effect=AssertionError("artifact validation accessed"),
                 ) as validate,
+                mock.patch(
+                    "music_manager.musicbrainz_orchestration."
+                    "ProductionMusicBrainzClient",
+                    side_effect=AssertionError("client accessed"),
+                ) as client_factory,
+                mock.patch(
+                    "music_manager.musicbrainz_orchestration."
+                    "register_musicbrainz_artifacts",
+                    side_effect=AssertionError("matching artifact accessed"),
+                ) as register,
                 redirect_stderr(stderr),
             ):
                 exit_code = main(
@@ -380,6 +453,8 @@ class CliRegressionTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 2)
             validate.assert_not_called()
+            client_factory.assert_not_called()
+            register.assert_not_called()
             self.assertIn("MusicBrainz is disabled", stderr.getvalue())
 
     def test_match_cli_accepts_persistent_config_consent(self) -> None:
@@ -396,8 +471,16 @@ class CliRegressionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             stdout = io.StringIO()
+            client = _EmptyMusicBrainzClient()
 
-            with redirect_stdout(stdout):
+            with (
+                mock.patch(
+                    "music_manager.musicbrainz_orchestration."
+                    "ProductionMusicBrainzClient",
+                    return_value=client,
+                ),
+                redirect_stdout(stdout),
+            ):
                 exit_code = main(
                     [
                         "match",
@@ -410,7 +493,116 @@ class CliRegressionTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertIn("Consent source: config", stdout.getvalue())
-            self.assertIn("Network requests: 0", stdout.getvalue())
+            self.assertIn("MusicBrainz matching complete", stdout.getvalue())
+            self.assertEqual(client.calls, ["album", "recording"])
+            self.assertTrue(client.closed)
+
+    def test_match_cli_registers_errors_before_nonzero_exit(self) -> None:
+        private_values = (
+            "private query",
+            "private response body",
+            "private-user",
+            "private-host",
+            "private-cache-path",
+            "private-audio-data",
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = root / "12345678-1234-4abc-8def-1234567890ab"
+            shutil.copytree(
+                PROJECT_ROOT / "tests" / "fixtures" / "v0_3" / "valid",
+                run_directory,
+            )
+            client = _EmptyMusicBrainzClient(
+                album_error=MusicBrainzRequestError(" ".join(private_values))
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with (
+                mock.patch(
+                    "music_manager.musicbrainz_orchestration."
+                    "ProductionMusicBrainzClient",
+                    return_value=client,
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = main(
+                    [
+                        "match",
+                        "--scan-run",
+                        str(run_directory),
+                        "--musicbrainz",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertTrue(client.closed)
+            self.assertEqual(client.calls, ["album", "recording"])
+            self.assertIn("Errors: 1", stdout.getvalue())
+            self.assertIn("reports were registered", stderr.getvalue())
+            artifacts = validate_artifact_set(run_directory / "scan_manifest.json")
+            self.assertEqual(
+                len(artifacts.musicbrainz_match_result_rows),
+                2,
+            )
+            terminal = stdout.getvalue() + stderr.getvalue()
+            for private_value in private_values:
+                self.assertNotIn(private_value, terminal)
+
+    def test_config_enabled_scan_and_analysis_do_not_open_musicbrainz(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = root / "12345678-1234-4abc-8def-1234567890ab"
+            shutil.copytree(
+                PROJECT_ROOT / "tests" / "fixtures" / "v0_3" / "valid",
+                run_directory,
+            )
+            config_path = root / "music-manager.yml"
+            config_path.write_text(
+                "musicbrainz:\n  enabled: true\n",
+                encoding="utf-8",
+            )
+            source = root / "source"
+            source.mkdir()
+            scan_reports = root / "scan-reports"
+            stdout = io.StringIO()
+
+            with (
+                mock.patch(
+                    "music_manager.musicbrainz_orchestration."
+                    "ProductionMusicBrainzClient",
+                    side_effect=AssertionError("client accessed"),
+                ) as client_factory,
+                mock.patch(
+                    "music_manager.cli.DEFAULT_REPORT_DIRECTORY",
+                    scan_reports,
+                ),
+                redirect_stdout(stdout),
+            ):
+                scan_exit_code = main(
+                    [
+                        "scan",
+                        "--source",
+                        str(source),
+                        "--config",
+                        str(config_path),
+                    ]
+                )
+                analysis_exit_code = main(
+                    [
+                        "analyze",
+                        "--scan-run",
+                        str(run_directory),
+                        "--config",
+                        str(config_path),
+                    ]
+                )
+
+            self.assertEqual(scan_exit_code, 0)
+            self.assertEqual(analysis_exit_code, 0)
+            client_factory.assert_not_called()
 
 
 if __name__ == "__main__":
