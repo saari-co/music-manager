@@ -393,7 +393,7 @@ class CliRegressionTests(unittest.TestCase):
             self.assertEqual(client.calls, ["album", "recording"])
             self.assertTrue(client.closed)
             self.assertIn("Consent source: cli", stdout.getvalue())
-            self.assertIn("music-manager/0.3.0", stdout.getvalue())
+            self.assertIn("music-manager/0.4.0", stdout.getvalue())
             self.assertIn("Album groups: 1", stdout.getvalue())
             self.assertIn("Recordings: 1", stdout.getvalue())
             self.assertIn("Candidates: 0", stdout.getvalue())

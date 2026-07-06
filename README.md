@@ -8,7 +8,8 @@ The project emphasizes safety, reproducibility, metadata accuracy, and staged
 workflows. Current operations analyze and report only. Any future write
 operation must present a reviewable plan and require explicit user approval.
 
-The current release is **v0.3.0**.
+The current release is **v0.4.0**. See the
+[v0.4.0 release notes](docs/v0.4.0-release-notes.md).
 
 ## Project vision
 
@@ -18,9 +19,10 @@ collections. Staging and organization are future capabilities. Each result
 should be explainable, reproducible, and reviewable before it can affect a
 library.
 
-The released v0.3 workflow provides a read-only, versioned scanner and
-report-only analysis with durable local provenance. Later milestones build on
-that foundation instead of bypassing it.
+The released v0.4 workflow provides a read-only, versioned scanner,
+report-only analysis, and explicit opt-in MusicBrainz candidate matching with
+durable local provenance. Later milestones build on that foundation instead of
+bypassing it.
 
 ## Why Music Manager exists
 
@@ -77,6 +79,19 @@ Strict read-only compatibility remains available for the two documented v0.2
 CSV headers. Legacy analysis stays flat and unversioned and does not fabricate
 schema 1 identity or provenance.
 
+The MusicBrainz matcher can read a finalized schema 1 run and, only after
+explicit consent:
+
+- extract deterministic album groups and eligible recording subjects;
+- retrieve MusicBrainz release-group and recording candidates through a
+  cached, rate-limited client;
+- score and classify candidates as matched, ambiguous, unmatched, not
+  eligible, or error; and
+- atomically register four reviewable schema 1.1 CSV reports.
+
+Matching writes reports only. It does not apply metadata or access source
+files through paths stored in the scan.
+
 The scanner does not classify folders by music app, artist folder, download
 folder, or any other source guess. Every supported audio file under the
 selected scan root is part of the Root Library. If similar or matching files
@@ -87,7 +102,6 @@ only.
 
 Later milestones, none of which are implemented yet, add:
 
-- v0.4: opt-in MusicBrainz matching with confidence scores;
 - v0.5: checksum-verified staging copies;
 - v0.6: approved renaming, retagging, artwork, and album normalization of
   staged copies;
@@ -173,6 +187,49 @@ Analysis writes:
 
 Legacy analysis writes the same report filenames directly under `reports/`.
 
+### Opt-in MusicBrainz matching
+
+MusicBrainz access is disabled by default. Run matching against an explicit
+schema 1 scan directory and opt in for that invocation:
+
+```bash
+music-manager match \
+  --scan-run reports/<scan-id> \
+  --musicbrainz
+```
+
+Before the first request, the command validates consent and the selected
+artifact set and explains the network boundary. MusicBrainz may receive
+normalized artist, album, and title text. MusicBrainz and the network operator
+can observe that query text, the source IP, request timing, and the application
+User-Agent.
+
+Paths, filenames, scan IDs, file-record IDs, audio, artwork, and source files
+are not sent. Matching does not open source-library paths from the report and
+does not apply metadata. It writes and atomically registers these files in the
+selected run:
+
+- `musicbrainz_album_groups.csv`
+- `musicbrainz_album_candidates.csv`
+- `musicbrainz_recording_candidates.csv`
+- `musicbrainz_match_results.csv`
+
+To retain explicit consent in local configuration, set:
+
+```yaml
+musicbrainz:
+  enabled: true
+```
+
+Config-enabled consent applies only to the `match` command. Use
+`--no-musicbrainz` on a match invocation to override enabled configuration and
+perform no MusicBrainz client, cache, transport, or matching-artifact work.
+Scan and analysis commands never instantiate or call the MusicBrainz client.
+
+Candidate statuses and confidence scores are review evidence only. Matching
+writes reports only: no source-library file is renamed, moved, copied, deleted,
+retagged, staged, or edited.
+
 ### Recognizing legacy mode
 
 Use `--scan-report` only for an existing unversioned v0.2 CSV:
@@ -215,13 +272,16 @@ path_mode: relative
 ignore:
   - .DS_Store
   # - Music/Media.localized
+musicbrainz:
+  enabled: false
 ```
 
 `path_mode` accepts `relative` or `absolute`, but `absolute` applies only to
 legacy `--scan-report` analysis. Ignore patterns are evaluated relative to the
 selected scan root and prune matching files or directories. The local
-`music-manager.yml` file is ignored by Git to prevent accidental publication of
-machine-specific rules.
+`music-manager.yml` file is ignored by Git to prevent accidental publication
+of machine-specific rules. `musicbrainz.enabled` defaults to `false`; setting
+it to `true` is persistent explicit consent for the `match` command only.
 
 `Root Library total` is the count of all supported audio files found anywhere
 under the selected scan root, including unreadable files. Folder placement
@@ -251,12 +311,18 @@ branch, pull request, labeling, verification, and release workflow.
 
 ## Safety model
 
-Scanning and analysis do not rename, move, copy, delete, retag, upload, or
-otherwise modify music files. The scanner reads the selected source and writes
-only a local report. Reports use relative paths by default. The analyzer reads
-that report without opening the music paths it contains, then writes local
-analysis reports. Unreadable files become report errors instead of terminating
-the workflow.
+Scanning, analysis, and matching do not rename, move, copy, delete, retag,
+stage, upload, or otherwise modify music files. The scanner reads the selected
+source and writes only a local report. Reports use relative paths by default.
+The analyzer reads that report without opening the music paths it contains,
+then writes local analysis reports. Unreadable files become report errors
+instead of terminating the workflow.
+
+MusicBrainz matching is the only current external request workflow, remains
+disabled by default, and requires explicit consent. It may send normalized
+artist, album, and title text, but never paths, filenames, scan IDs,
+file-record IDs, audio, artwork, or source files. Its only durable output is
+the private matching report family in the selected scan directory.
 
 Future capabilities that can write data must operate on a separate staging
 library, present a reviewable plan, require explicit approval, and verify their
@@ -270,18 +336,18 @@ Security reporting guidance is available in [SECURITY.md](SECURITY.md).
 
 ## Roadmap summary
 
-| Milestone | Status | Focus |
-| --- | --- | --- |
-| v0.1 | Released | Read-only scanning and CSV reporting |
-| v0.2 | Released | Duplicate-first library audit, quality, and corruption analysis |
-| v0.2.1 | Released | Packaging, CLI, development, configuration, documentation, and test cleanup |
-| v0.3 | Released | Durable scan and report contract |
-| v0.4 | Planned | Opt-in MusicBrainz matching and metadata confidence |
-| v0.5 | Planned | Checksum-verified staging library |
-| v0.6 | Planned | Safe organization engine for staged copies |
-| v0.7 | Planned | Local HTML dashboard |
-| v0.8 | Planned | Continuous inbox automation |
-| v1.0 | Planned | Stable, trusted application workflows |
+| Milestone | Status   | Focus                                                                       |
+| --------- | -------- | --------------------------------------------------------------------------- |
+| v0.1      | Released | Read-only scanning and CSV reporting                                        |
+| v0.2      | Released | Duplicate-first library audit, quality, and corruption analysis             |
+| v0.2.1    | Released | Packaging, CLI, development, configuration, documentation, and test cleanup |
+| v0.3      | Released | Durable scan and report contract                                            |
+| v0.4      | Released | Opt-in MusicBrainz matching and metadata confidence                         |
+| v0.5      | Planned  | Checksum-verified staging library                                           |
+| v0.6      | Planned  | Safe organization engine for staged copies                                  |
+| v0.7      | Planned  | Local HTML dashboard                                                        |
+| v0.8      | Planned  | Continuous inbox automation                                                 |
+| v1.0      | Planned  | Stable, trusted application workflows                                       |
 
 ## License
 

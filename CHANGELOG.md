@@ -7,22 +7,51 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-05
+
 ### Added
 
-- Added schema 1.1 models and strict validators for the planned MusicBrainz
-  matching artifact family while retaining schema 1.0 compatibility.
-- Added default-off MusicBrainz configuration, consent preflight plumbing,
-  identifiable User-Agent construction, and an injectable client interface
-  without real network or matching behavior.
-- Added the production MusicBrainz client shell with fixed HTTPS request
-  policy, persistent opaque-key caching, deterministic rate limiting and
-  retries, and fully injected offline test seams.
-- Added deterministic in-memory MusicBrainz album and recording subject
-  extraction plus injected-client candidate retrieval without scoring or
-  artifact output.
-- Added deterministic in-memory MusicBrainz evidence scoring, candidate
-  ranking, confidence margins, and result classification without artifact
-  output or matching activation.
+- Added explicit opt-in MusicBrainz album and recording candidate matching for
+  finalized schema 1 scan runs through
+  `music-manager match --scan-run <run> --musicbrainz`.
+- Added default-off MusicBrainz configuration, a `--no-musicbrainz` override,
+  consent preflight, an identifiable application User-Agent, and clear
+  terminal disclosure before requests begin.
+- Added a fixed-origin HTTPS MusicBrainz client with persistent opaque-key
+  caching, deterministic rate limiting, bounded retries, circuit-open
+  behavior, and sanitized failures.
+- Added deterministic album grouping, recording eligibility, candidate
+  retrieval, evidence scoring, ranking, confidence margins, and
+  `matched`/`ambiguous`/`unmatched`/`not_eligible`/`error` classification.
+- Added atomic schema 1.1 registration for
+  `musicbrainz_album_groups.csv`, `musicbrainz_album_candidates.csv`,
+  `musicbrainz_recording_candidates.csv`, and
+  `musicbrainz_match_results.csv`.
+- Added fully offline fake-client, fake-transport, cache, retry, privacy,
+  orchestration, scoring, artifact-lifecycle, and CLI coverage.
+
+### Changed
+
+- Versioned artifact readers now accept schema 1.0 and 1.1, and a completed
+  matching run upgrades the selected manifest to schema 1.1 without rewriting
+  primary scan artifacts.
+- The `match` command now runs the completed MusicBrainz report pipeline when
+  consent is supplied by CLI or local configuration; scan and analysis
+  commands remain isolated from MusicBrainz.
+
+### Security
+
+- MusicBrainz matching is disabled by default and requires the `match` command
+  plus explicit CLI or configuration consent.
+- Only normalized artist, album, and title text may enter MusicBrainz queries.
+  Paths, filenames, scan IDs, file-record IDs, audio, artwork, checksums,
+  fingerprints, source files, cache paths, usernames, and hostnames are not
+  sent.
+- Matching writes private reports only. It does not apply metadata or open,
+  rename, move, copy, delete, retag, stage, or otherwise edit source-library
+  files.
+- Automated MusicBrainz tests use injected fakes only and make no live network,
+  DNS, socket, or real-sleep calls.
 
 ## [0.3.0] - 2026-07-04
 
