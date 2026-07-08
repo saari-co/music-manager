@@ -102,7 +102,8 @@ only.
 
 Later milestones, none of which are implemented yet, add:
 
-- v0.5: checksum-verified staging copies;
+- v0.5: checksum-verified staging copies, starting from the
+  [safe staging contract](docs/v0.5-staging-decision.md);
 - v0.6: approved renaming, retagging, artwork, and album normalization of
   staged copies;
 - v0.7: a local HTML dashboard; and
