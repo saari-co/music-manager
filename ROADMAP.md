@@ -108,6 +108,9 @@ source-library changes.
 
 **Status:** Planned
 
+- Review and accept the
+  [safe staging contract](docs/v0.5-staging-decision.md) before
+  implementation.
 - Copy approved files into a separate staging library.
 - Validate source and staged files with checksums.
 - Verify copies before later operations can proceed.
