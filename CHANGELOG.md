@@ -7,12 +7,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-### Added
-
-- Added the proposed v0.5 safe staging contract covering explicit approval,
-  separate staging roots, checksum-verified copies, privacy boundaries, and
-  follow-up implementation slices.
-
 ## [0.4.0] - 2026-07-05
 
 ### Added
