@@ -21,8 +21,9 @@ from uuid import RFC_4122, UUID, uuid5
 
 SCHEMA_VERSION = "1.0.0"
 MATCHING_SCHEMA_VERSION = "1.1.0"
+STAGING_SCHEMA_VERSION = "1.2.0"
 SUPPORTED_SCHEMA_MAJOR = 1
-SUPPORTED_SCHEMA_MINOR = 1
+SUPPORTED_SCHEMA_MINOR = 2
 
 LIBRARY_SCAN_HEADER = (
     "scan_id",
@@ -114,6 +115,36 @@ MUSICBRAINZ_MATCH_RESULTS_HEADER = (
     "confidence_margin",
     "reason_code",
 )
+STAGING_PLAN_HEADER = (
+    "scan_id",
+    "stage_id",
+    "file_record_id",
+    "source_path",
+    "stage_relative_path",
+    "plan_status",
+    "reason_code",
+)
+STAGING_COPIES_HEADER = (
+    "scan_id",
+    "stage_id",
+    "file_record_id",
+    "source_path",
+    "stage_relative_path",
+    "source_size_bytes",
+    "source_sha256",
+    "staged_size_bytes",
+    "staged_sha256",
+    "copy_status",
+)
+STAGING_ERRORS_HEADER = (
+    "scan_id",
+    "stage_id",
+    "file_record_id",
+    "source_path",
+    "stage",
+    "error_code",
+    "message",
+)
 
 MANIFEST_STATES = frozenset({"running", "complete", "incomplete", "failed"})
 ARTIFACT_ROLES = frozenset({"primary", "derived"})
@@ -138,6 +169,11 @@ MATCH_REASON_CODES = frozenset(
         "request_failed",
         "malformed_response",
     }
+)
+PLAN_STATUSES = frozenset({"planned", "not_eligible"})
+COPY_STATUSES = frozenset({"verified"})
+STAGING_ERROR_STAGES = frozenset(
+    {"source_preflight", "copy", "verification", "finalization"}
 )
 
 _ARTIFACT_SPECS = {
@@ -168,6 +204,21 @@ _ARTIFACT_SPECS = {
         "derived",
         1,
     ),
+    "staging_plan": (
+        "staging_plan.csv",
+        "derived",
+        2,
+    ),
+    "staging_copies": (
+        "staging_copies.csv",
+        "derived",
+        2,
+    ),
+    "staging_errors": (
+        "staging_errors.csv",
+        "derived",
+        2,
+    ),
 }
 MATCHING_ARTIFACT_NAMES = frozenset(
     {
@@ -175,6 +226,19 @@ MATCHING_ARTIFACT_NAMES = frozenset(
         "musicbrainz_album_candidates",
         "musicbrainz_recording_candidates",
         "musicbrainz_match_results",
+    }
+)
+STAGING_ARTIFACT_NAMES = frozenset(
+    {
+        "staging_plan",
+        "staging_copies",
+        "staging_errors",
+    }
+)
+STAGING_APPLY_ARTIFACT_NAMES = frozenset(
+    {
+        "staging_copies",
+        "staging_errors",
     }
 )
 _MANIFEST_FIELDS = (
@@ -371,6 +435,13 @@ def _validate_relative_path(value: str, location: str) -> str:
     if any(part in {"", ".", ".."} for part in parts):
         raise _error(location, "must not contain empty, . or .. segments")
     return value
+
+
+def _validate_stage_relative_path(value: str, location: str) -> str:
+    path = _validate_relative_path(value, location)
+    if not path.startswith("files/"):
+        raise _error(location, "must start with 'files/'")
+    return path
 
 
 def _validate_artifact_filename(value: Any, location: str) -> str:
@@ -909,6 +980,24 @@ class ScanManifest:
             raise _error(
                 f"{location}.artifacts",
                 f"matching artifact family is missing: {', '.join(missing)}",
+            )
+
+        staging_apply_artifacts = STAGING_APPLY_ARTIFACT_NAMES.intersection(
+            self.artifacts
+        )
+        if (
+            staging_apply_artifacts
+            and staging_apply_artifacts != STAGING_APPLY_ARTIFACT_NAMES
+        ):
+            missing = sorted(STAGING_APPLY_ARTIFACT_NAMES - staging_apply_artifacts)
+            raise _error(
+                f"{location}.artifacts",
+                f"staging apply artifact family is missing: {', '.join(missing)}",
+            )
+        if staging_apply_artifacts and "staging_plan" not in self.artifacts:
+            raise _error(
+                f"{location}.artifacts",
+                "staging apply artifacts require staging_plan",
             )
 
         library_entry = self.artifacts.get("library_scan")
@@ -1785,6 +1874,299 @@ class MusicBrainzMatchResultRow:
 
 
 @dataclass(frozen=True)
+class StagingPlanRow:
+    """One schema 1.2 staging plan row."""
+
+    scan_id: UUID
+    stage_id: UUID
+    file_record_id: UUID
+    source_path: str
+    stage_relative_path: str
+    plan_status: str
+    reason_code: str
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "staging_plan.csv row",
+    ) -> "StagingPlanRow":
+        _validate_csv_row_mapping(value, STAGING_PLAN_HEADER, location)
+        scan_id = _parse_uuid(value["scan_id"], f"{location}.scan_id", version=4)
+        stage_id = _parse_uuid(value["stage_id"], f"{location}.stage_id", version=4)
+        source_path = _validate_relative_path(
+            value["source_path"],
+            f"{location}.source_path",
+        )
+        file_record_id = _parse_uuid(
+            value["file_record_id"],
+            f"{location}.file_record_id",
+            version=5,
+        )
+        expected_record_id = make_file_record_id(scan_id, source_path)
+        if file_record_id != expected_record_id:
+            raise _error(
+                f"{location}.file_record_id",
+                "does not match scan_id and source_path",
+            )
+        stage_relative_path = _validate_stage_relative_path(
+            value["stage_relative_path"],
+            f"{location}.stage_relative_path",
+        )
+        expected_stage_relative_path = f"files/{source_path}"
+        if stage_relative_path != expected_stage_relative_path:
+            raise _error(
+                f"{location}.stage_relative_path",
+                "must equal 'files/' followed by source_path exactly",
+            )
+        plan_status = value["plan_status"]
+        if plan_status not in PLAN_STATUSES:
+            raise _error(
+                f"{location}.plan_status",
+                f"must be one of: {', '.join(sorted(PLAN_STATUSES))}",
+            )
+        reason_code = _parse_csv_text(
+            value["reason_code"],
+            f"{location}.reason_code",
+            nullable=True,
+        )
+        if reason_code and _ERROR_CODE_RE.fullmatch(reason_code) is None:
+            raise _error(
+                f"{location}.reason_code",
+                "must be lowercase snake case",
+            )
+        if plan_status == "not_eligible" and reason_code == "":
+            raise _error(
+                f"{location}.reason_code",
+                "not_eligible rows require a reason_code",
+            )
+        if plan_status == "planned" and reason_code != "":
+            raise _error(
+                f"{location}.reason_code",
+                "planned rows require an empty reason_code",
+            )
+        return cls(
+            scan_id=scan_id,
+            stage_id=stage_id,
+            file_record_id=file_record_id,
+            source_path=source_path,
+            stage_relative_path=stage_relative_path,
+            plan_status=plan_status,
+            reason_code=reason_code,
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+        return {
+            "scan_id": str(self.scan_id),
+            "stage_id": str(self.stage_id),
+            "file_record_id": str(self.file_record_id),
+            "source_path": self.source_path,
+            "stage_relative_path": self.stage_relative_path,
+            "plan_status": self.plan_status,
+            "reason_code": self.reason_code,
+        }
+
+
+@dataclass(frozen=True)
+class StagingCopyRow:
+    """One schema 1.2 verified staging copy row."""
+
+    scan_id: UUID
+    stage_id: UUID
+    file_record_id: UUID
+    source_path: str
+    stage_relative_path: str
+    source_size_bytes: int
+    source_sha256: str
+    staged_size_bytes: int
+    staged_sha256: str
+    copy_status: str
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "staging_copies.csv row",
+    ) -> "StagingCopyRow":
+        _validate_csv_row_mapping(value, STAGING_COPIES_HEADER, location)
+        scan_id = _parse_uuid(value["scan_id"], f"{location}.scan_id", version=4)
+        stage_id = _parse_uuid(value["stage_id"], f"{location}.stage_id", version=4)
+        source_path = _validate_relative_path(
+            value["source_path"],
+            f"{location}.source_path",
+        )
+        file_record_id = _parse_uuid(
+            value["file_record_id"],
+            f"{location}.file_record_id",
+            version=5,
+        )
+        expected_record_id = make_file_record_id(scan_id, source_path)
+        if file_record_id != expected_record_id:
+            raise _error(
+                f"{location}.file_record_id",
+                "does not match scan_id and source_path",
+            )
+        stage_relative_path = _validate_stage_relative_path(
+            value["stage_relative_path"],
+            f"{location}.stage_relative_path",
+        )
+        expected_stage_relative_path = f"files/{source_path}"
+        if stage_relative_path != expected_stage_relative_path:
+            raise _error(
+                f"{location}.stage_relative_path",
+                "must equal 'files/' followed by source_path exactly",
+            )
+        copy_status = value["copy_status"]
+        if copy_status not in COPY_STATUSES:
+            raise _error(
+                f"{location}.copy_status",
+                f"must be one of: {', '.join(sorted(COPY_STATUSES))}",
+            )
+        source_size_bytes = _parse_csv_integer(
+            value["source_size_bytes"],
+            f"{location}.source_size_bytes",
+            nullable=False,
+            nonnegative=True,
+        )
+        staged_size_bytes = _parse_csv_integer(
+            value["staged_size_bytes"],
+            f"{location}.staged_size_bytes",
+            nullable=False,
+            nonnegative=True,
+        )
+        if source_size_bytes is None or staged_size_bytes is None:
+            raise AssertionError("non-nullable size fields must be present")
+        if source_size_bytes != staged_size_bytes:
+            raise _error(
+                location,
+                "source_size_bytes and staged_size_bytes must match",
+            )
+        source_sha256 = _parse_sha256(
+            value["source_sha256"],
+            f"{location}.source_sha256",
+        )
+        staged_sha256 = _parse_sha256(
+            value["staged_sha256"],
+            f"{location}.staged_sha256",
+        )
+        if source_sha256 != staged_sha256:
+            raise _error(
+                location,
+                "source_sha256 and staged_sha256 must match",
+            )
+        return cls(
+            scan_id=scan_id,
+            stage_id=stage_id,
+            file_record_id=file_record_id,
+            source_path=source_path,
+            stage_relative_path=stage_relative_path,
+            source_size_bytes=source_size_bytes,
+            source_sha256=source_sha256,
+            staged_size_bytes=staged_size_bytes,
+            staged_sha256=staged_sha256,
+            copy_status=copy_status,
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+        return {
+            "scan_id": str(self.scan_id),
+            "stage_id": str(self.stage_id),
+            "file_record_id": str(self.file_record_id),
+            "source_path": self.source_path,
+            "stage_relative_path": self.stage_relative_path,
+            "source_size_bytes": str(self.source_size_bytes),
+            "source_sha256": self.source_sha256,
+            "staged_size_bytes": str(self.staged_size_bytes),
+            "staged_sha256": self.staged_sha256,
+            "copy_status": self.copy_status,
+        }
+
+
+@dataclass(frozen=True)
+class StagingErrorRow:
+    """One schema 1.2 staging error row."""
+
+    scan_id: UUID
+    stage_id: UUID
+    file_record_id: UUID
+    source_path: str
+    stage: str
+    error_code: str
+    message: str
+
+    @classmethod
+    def from_csv_row(
+        cls,
+        value: Mapping[str, str],
+        *,
+        location: str = "staging_errors.csv row",
+    ) -> "StagingErrorRow":
+        _validate_csv_row_mapping(value, STAGING_ERRORS_HEADER, location)
+        scan_id = _parse_uuid(value["scan_id"], f"{location}.scan_id", version=4)
+        stage_id = _parse_uuid(value["stage_id"], f"{location}.stage_id", version=4)
+        source_path = _validate_relative_path(
+            value["source_path"],
+            f"{location}.source_path",
+        )
+        file_record_id = _parse_uuid(
+            value["file_record_id"],
+            f"{location}.file_record_id",
+            version=5,
+        )
+        expected_record_id = make_file_record_id(scan_id, source_path)
+        if file_record_id != expected_record_id:
+            raise _error(
+                f"{location}.file_record_id",
+                "does not match scan_id and source_path",
+            )
+        stage = value["stage"]
+        if stage not in STAGING_ERROR_STAGES:
+            raise _error(
+                f"{location}.stage",
+                f"must be one of: {', '.join(sorted(STAGING_ERROR_STAGES))}",
+            )
+        error_code = _parse_csv_text(
+            value["error_code"],
+            f"{location}.error_code",
+            nullable=False,
+        )
+        if _ERROR_CODE_RE.fullmatch(error_code) is None:
+            raise _error(
+                f"{location}.error_code",
+                "must be lowercase snake case",
+            )
+        return cls(
+            scan_id=scan_id,
+            stage_id=stage_id,
+            file_record_id=file_record_id,
+            source_path=source_path,
+            stage=stage,
+            error_code=error_code,
+            message=_parse_csv_text(
+                value["message"],
+                f"{location}.message",
+                nullable=False,
+            ),
+        )
+
+    def to_csv_row(self) -> dict[str, str]:
+        """Return the canonical string representation."""
+        return {
+            "scan_id": str(self.scan_id),
+            "stage_id": str(self.stage_id),
+            "file_record_id": str(self.file_record_id),
+            "source_path": self.source_path,
+            "stage": self.stage,
+            "error_code": self.error_code,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True)
 class ValidatedArtifactSet:
     """A manifest and every strictly validated registered artifact row."""
 
@@ -1795,6 +2177,9 @@ class ValidatedArtifactSet:
     musicbrainz_album_candidate_rows: tuple[MusicBrainzAlbumCandidateRow, ...]
     musicbrainz_recording_candidate_rows: tuple[MusicBrainzRecordingCandidateRow, ...]
     musicbrainz_match_result_rows: tuple[MusicBrainzMatchResultRow, ...]
+    staging_plan_rows: tuple[StagingPlanRow, ...]
+    staging_copy_rows: tuple[StagingCopyRow, ...]
+    staging_error_rows: tuple[StagingErrorRow, ...]
 
 
 def _validate_header(
@@ -1916,6 +2301,101 @@ def load_musicbrainz_match_results(
             row, location=location
         ),
     )
+
+
+def _ensure_row_sort_order(
+    rows: Sequence[_Row],
+    key: Callable[[_Row], tuple[Any, ...]],
+    location: str,
+) -> None:
+    previous: tuple[Any, ...] | None = None
+    for index, row in enumerate(rows, start=2):
+        current = key(row)
+        if previous is not None and current < previous:
+            raise _error(
+                f"{location} row {index}",
+                "rows are not in the required sort order",
+            )
+        previous = current
+
+
+def _reject_duplicate_staging_records(
+    rows: Sequence[StagingPlanRow] | Sequence[StagingCopyRow],
+    location: str,
+) -> None:
+    seen_ids: set[UUID] = set()
+    seen_paths: set[str] = set()
+    for row in rows:
+        if row.file_record_id in seen_ids:
+            raise _error(location, f"duplicate file_record_id {row.file_record_id}")
+        if row.source_path in seen_paths:
+            raise _error(location, f"duplicate source_path {row.source_path!r}")
+        seen_ids.add(row.file_record_id)
+        seen_paths.add(row.source_path)
+
+
+def _reject_duplicate_staging_errors(
+    rows: Sequence[StagingErrorRow],
+    location: str,
+) -> None:
+    seen: set[tuple[UUID, str, str]] = set()
+    for row in rows:
+        key = (row.file_record_id, row.stage, row.error_code)
+        if key in seen:
+            raise _error(
+                location,
+                f"duplicate error row for file_record_id {row.file_record_id}, "
+                f"stage {row.stage!r}, error_code {row.error_code!r}",
+            )
+        seen.add(key)
+
+
+def load_staging_plan(path: Path) -> tuple[StagingPlanRow, ...]:
+    """Load and validate schema 1.2 staging plan rows."""
+    rows = _load_csv_rows(
+        path,
+        STAGING_PLAN_HEADER,
+        lambda row, location: StagingPlanRow.from_csv_row(row, location=location),
+    )
+    _ensure_row_sort_order(
+        rows,
+        lambda row: (row.source_path,),
+        path.name,
+    )
+    _reject_duplicate_staging_records(rows, path.name)
+    return rows
+
+
+def load_staging_copies(path: Path) -> tuple[StagingCopyRow, ...]:
+    """Load and validate schema 1.2 staging copy rows."""
+    rows = _load_csv_rows(
+        path,
+        STAGING_COPIES_HEADER,
+        lambda row, location: StagingCopyRow.from_csv_row(row, location=location),
+    )
+    _ensure_row_sort_order(
+        rows,
+        lambda row: (row.source_path,),
+        path.name,
+    )
+    _reject_duplicate_staging_records(rows, path.name)
+    return rows
+
+
+def load_staging_errors(path: Path) -> tuple[StagingErrorRow, ...]:
+    """Load and validate schema 1.2 staging error rows."""
+    rows = _load_csv_rows(
+        path,
+        STAGING_ERRORS_HEADER,
+        lambda row, location: StagingErrorRow.from_csv_row(row, location=location),
+    )
+    _ensure_row_sort_order(
+        rows,
+        lambda row: (row.source_path, row.stage, row.error_code),
+        path.name,
+    )
+    _reject_duplicate_staging_errors(rows, path.name)
+    return rows
 
 
 def _reject_json_constant(value: str) -> None:
@@ -2041,6 +2521,9 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
         MusicBrainzRecordingCandidateRow, ...
     ] = ()
     musicbrainz_match_result_rows: tuple[MusicBrainzMatchResultRow, ...] = ()
+    staging_plan_rows: tuple[StagingPlanRow, ...] = ()
+    staging_copy_rows: tuple[StagingCopyRow, ...] = ()
+    staging_error_rows: tuple[StagingErrorRow, ...] = ()
 
     for logical_name, entry in manifest.artifacts.items():
         artifact_path = directory / entry.filename
@@ -2069,6 +2552,15 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
                 artifact_path
             )
             actual_count = len(musicbrainz_match_result_rows)
+        elif logical_name == "staging_plan":
+            staging_plan_rows = load_staging_plan(artifact_path)
+            actual_count = len(staging_plan_rows)
+        elif logical_name == "staging_copies":
+            staging_copy_rows = load_staging_copies(artifact_path)
+            actual_count = len(staging_copy_rows)
+        elif logical_name == "staging_errors":
+            staging_error_rows = load_staging_errors(artifact_path)
+            actual_count = len(staging_error_rows)
         else:
             _validate_derived_csv(artifact_path, entry, manifest.scan_id)
             continue
@@ -2087,6 +2579,17 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
         musicbrainz_recording_candidate_rows,
         musicbrainz_match_result_rows,
     )
+    _validate_staging_scan_ids(
+        manifest,
+        staging_plan_rows,
+        staging_copy_rows,
+        staging_error_rows,
+    )
+    _validate_staging_referential_integrity(
+        staging_plan_rows,
+        staging_copy_rows,
+        staging_error_rows,
+    )
     return ValidatedArtifactSet(
         manifest=manifest,
         library_rows=library_rows,
@@ -2095,6 +2598,9 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
         musicbrainz_album_candidate_rows=musicbrainz_album_candidate_rows,
         musicbrainz_recording_candidate_rows=musicbrainz_recording_candidate_rows,
         musicbrainz_match_result_rows=musicbrainz_match_result_rows,
+        staging_plan_rows=staging_plan_rows,
+        staging_copy_rows=staging_copy_rows,
+        staging_error_rows=staging_error_rows,
     )
 
 
@@ -2115,6 +2621,65 @@ def _validate_matching_scan_ids(
             raise _error(
                 "MusicBrainz artifact row scan_id",
                 "does not match the manifest",
+            )
+
+
+def _validate_staging_scan_ids(
+    manifest: ScanManifest,
+    plan_rows: Sequence[StagingPlanRow],
+    copy_rows: Sequence[StagingCopyRow],
+    error_rows: Sequence[StagingErrorRow],
+) -> None:
+    stage_ids: set[UUID] = set()
+    for row in (*plan_rows, *copy_rows, *error_rows):
+        if row.scan_id != manifest.scan_id:
+            raise _error(
+                "staging artifact row scan_id",
+                "does not match the manifest",
+            )
+        stage_ids.add(row.stage_id)
+    if len(stage_ids) > 1:
+        raise _error(
+            "staging artifact row stage_id",
+            "must be consistent across the registered staging family",
+        )
+
+
+def _validate_staging_referential_integrity(
+    plan_rows: Sequence[StagingPlanRow],
+    copy_rows: Sequence[StagingCopyRow],
+    error_rows: Sequence[StagingErrorRow],
+) -> None:
+    plan_by_key = {(row.file_record_id, row.source_path): row for row in plan_rows}
+    copy_ids = {row.file_record_id for row in copy_rows}
+    for row_number, row in enumerate(copy_rows, start=2):
+        plan_row = plan_by_key.get((row.file_record_id, row.source_path))
+        if plan_row is None:
+            raise _error(
+                f"staging_copies.csv row {row_number}.file_record_id",
+                "does not reference a staging_plan row",
+            )
+        if plan_row.plan_status != "planned":
+            raise _error(
+                f"staging_copies.csv row {row_number}.file_record_id",
+                "references a staging_plan row that is not planned",
+            )
+    for row_number, row in enumerate(error_rows, start=2):
+        plan_row = plan_by_key.get((row.file_record_id, row.source_path))
+        if plan_row is None:
+            raise _error(
+                f"staging_errors.csv row {row_number}.file_record_id",
+                "does not reference a staging_plan row",
+            )
+        if plan_row.plan_status != "planned":
+            raise _error(
+                f"staging_errors.csv row {row_number}.file_record_id",
+                "references a staging_plan row that is not planned",
+            )
+        if row.file_record_id in copy_ids:
+            raise _error(
+                f"staging_errors.csv row {row_number}.file_record_id",
+                "must not also appear in staging_copies.csv",
             )
 
 

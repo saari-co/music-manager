@@ -145,7 +145,7 @@ class SchemaOneModelTests(unittest.TestCase):
         )
 
     def test_schema_version_compatibility_boundaries(self) -> None:
-        for version in ("1.0.9", "1.1.0", "1.1.9"):
+        for version in ("1.0.9", "1.1.0", "1.1.9", "1.2.0", "1.2.9"):
             with self.subTest(version=version):
                 compatible = _manifest_data()
                 compatible["schema_version"] = version
@@ -154,7 +154,7 @@ class SchemaOneModelTests(unittest.TestCase):
                     version,
                 )
 
-        for version in ("0.9.0", "1.2.0", "2.0.0"):
+        for version in ("0.9.0", "1.3.0", "2.0.0"):
             with self.subTest(version=version):
                 invalid = _manifest_data()
                 invalid["schema_version"] = version
