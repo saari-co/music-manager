@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Added schema 1.2 staging artifact models and strict validators for the
+  staging plan, copy, and error reports, with readers accepting schema
+  1.0.x-1.2.x.
+
 ## [0.4.0] - 2026-07-05
 
 ### Added

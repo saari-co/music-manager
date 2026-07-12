@@ -1893,6 +1893,33 @@ class StagingPlanRow:
         location: str = "staging_plan.csv row",
     ) -> "StagingPlanRow":
         _validate_csv_row_mapping(value, STAGING_PLAN_HEADER, location)
+        scan_id = _parse_uuid(value["scan_id"], f"{location}.scan_id", version=4)
+        stage_id = _parse_uuid(value["stage_id"], f"{location}.stage_id", version=4)
+        source_path = _validate_relative_path(
+            value["source_path"],
+            f"{location}.source_path",
+        )
+        file_record_id = _parse_uuid(
+            value["file_record_id"],
+            f"{location}.file_record_id",
+            version=5,
+        )
+        expected_record_id = make_file_record_id(scan_id, source_path)
+        if file_record_id != expected_record_id:
+            raise _error(
+                f"{location}.file_record_id",
+                "does not match scan_id and source_path",
+            )
+        stage_relative_path = _validate_stage_relative_path(
+            value["stage_relative_path"],
+            f"{location}.stage_relative_path",
+        )
+        expected_stage_relative_path = f"files/{source_path}"
+        if stage_relative_path != expected_stage_relative_path:
+            raise _error(
+                f"{location}.stage_relative_path",
+                "must equal 'files/' followed by source_path exactly",
+            )
         plan_status = value["plan_status"]
         if plan_status not in PLAN_STATUSES:
             raise _error(
@@ -1920,21 +1947,11 @@ class StagingPlanRow:
                 "planned rows require an empty reason_code",
             )
         return cls(
-            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
-            stage_id=_parse_uuid(value["stage_id"], f"{location}.stage_id", version=4),
-            file_record_id=_parse_uuid(
-                value["file_record_id"],
-                f"{location}.file_record_id",
-                version=5,
-            ),
-            source_path=_validate_relative_path(
-                value["source_path"],
-                f"{location}.source_path",
-            ),
-            stage_relative_path=_validate_stage_relative_path(
-                value["stage_relative_path"],
-                f"{location}.stage_relative_path",
-            ),
+            scan_id=scan_id,
+            stage_id=stage_id,
+            file_record_id=file_record_id,
+            source_path=source_path,
+            stage_relative_path=stage_relative_path,
             plan_status=plan_status,
             reason_code=reason_code,
         )
@@ -1975,6 +1992,33 @@ class StagingCopyRow:
         location: str = "staging_copies.csv row",
     ) -> "StagingCopyRow":
         _validate_csv_row_mapping(value, STAGING_COPIES_HEADER, location)
+        scan_id = _parse_uuid(value["scan_id"], f"{location}.scan_id", version=4)
+        stage_id = _parse_uuid(value["stage_id"], f"{location}.stage_id", version=4)
+        source_path = _validate_relative_path(
+            value["source_path"],
+            f"{location}.source_path",
+        )
+        file_record_id = _parse_uuid(
+            value["file_record_id"],
+            f"{location}.file_record_id",
+            version=5,
+        )
+        expected_record_id = make_file_record_id(scan_id, source_path)
+        if file_record_id != expected_record_id:
+            raise _error(
+                f"{location}.file_record_id",
+                "does not match scan_id and source_path",
+            )
+        stage_relative_path = _validate_stage_relative_path(
+            value["stage_relative_path"],
+            f"{location}.stage_relative_path",
+        )
+        expected_stage_relative_path = f"files/{source_path}"
+        if stage_relative_path != expected_stage_relative_path:
+            raise _error(
+                f"{location}.stage_relative_path",
+                "must equal 'files/' followed by source_path exactly",
+            )
         copy_status = value["copy_status"]
         if copy_status not in COPY_STATUSES:
             raise _error(
@@ -2014,21 +2058,11 @@ class StagingCopyRow:
                 "source_sha256 and staged_sha256 must match",
             )
         return cls(
-            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
-            stage_id=_parse_uuid(value["stage_id"], f"{location}.stage_id", version=4),
-            file_record_id=_parse_uuid(
-                value["file_record_id"],
-                f"{location}.file_record_id",
-                version=5,
-            ),
-            source_path=_validate_relative_path(
-                value["source_path"],
-                f"{location}.source_path",
-            ),
-            stage_relative_path=_validate_stage_relative_path(
-                value["stage_relative_path"],
-                f"{location}.stage_relative_path",
-            ),
+            scan_id=scan_id,
+            stage_id=stage_id,
+            file_record_id=file_record_id,
+            source_path=source_path,
+            stage_relative_path=stage_relative_path,
             source_size_bytes=source_size_bytes,
             source_sha256=source_sha256,
             staged_size_bytes=staged_size_bytes,
@@ -2072,6 +2106,23 @@ class StagingErrorRow:
         location: str = "staging_errors.csv row",
     ) -> "StagingErrorRow":
         _validate_csv_row_mapping(value, STAGING_ERRORS_HEADER, location)
+        scan_id = _parse_uuid(value["scan_id"], f"{location}.scan_id", version=4)
+        stage_id = _parse_uuid(value["stage_id"], f"{location}.stage_id", version=4)
+        source_path = _validate_relative_path(
+            value["source_path"],
+            f"{location}.source_path",
+        )
+        file_record_id = _parse_uuid(
+            value["file_record_id"],
+            f"{location}.file_record_id",
+            version=5,
+        )
+        expected_record_id = make_file_record_id(scan_id, source_path)
+        if file_record_id != expected_record_id:
+            raise _error(
+                f"{location}.file_record_id",
+                "does not match scan_id and source_path",
+            )
         stage = value["stage"]
         if stage not in STAGING_ERROR_STAGES:
             raise _error(
@@ -2089,17 +2140,10 @@ class StagingErrorRow:
                 "must be lowercase snake case",
             )
         return cls(
-            scan_id=_parse_uuid(value["scan_id"], f"{location}.scan_id", version=4),
-            stage_id=_parse_uuid(value["stage_id"], f"{location}.stage_id", version=4),
-            file_record_id=_parse_uuid(
-                value["file_record_id"],
-                f"{location}.file_record_id",
-                version=5,
-            ),
-            source_path=_validate_relative_path(
-                value["source_path"],
-                f"{location}.source_path",
-            ),
+            scan_id=scan_id,
+            stage_id=stage_id,
+            file_record_id=file_record_id,
+            source_path=source_path,
             stage=stage,
             error_code=error_code,
             message=_parse_csv_text(
@@ -2275,6 +2319,37 @@ def _ensure_row_sort_order(
         previous = current
 
 
+def _reject_duplicate_staging_records(
+    rows: Sequence[StagingPlanRow] | Sequence[StagingCopyRow],
+    location: str,
+) -> None:
+    seen_ids: set[UUID] = set()
+    seen_paths: set[str] = set()
+    for row in rows:
+        if row.file_record_id in seen_ids:
+            raise _error(location, f"duplicate file_record_id {row.file_record_id}")
+        if row.source_path in seen_paths:
+            raise _error(location, f"duplicate source_path {row.source_path!r}")
+        seen_ids.add(row.file_record_id)
+        seen_paths.add(row.source_path)
+
+
+def _reject_duplicate_staging_errors(
+    rows: Sequence[StagingErrorRow],
+    location: str,
+) -> None:
+    seen: set[tuple[UUID, str, str]] = set()
+    for row in rows:
+        key = (row.file_record_id, row.stage, row.error_code)
+        if key in seen:
+            raise _error(
+                location,
+                f"duplicate error row for file_record_id {row.file_record_id}, "
+                f"stage {row.stage!r}, error_code {row.error_code!r}",
+            )
+        seen.add(key)
+
+
 def load_staging_plan(path: Path) -> tuple[StagingPlanRow, ...]:
     """Load and validate schema 1.2 staging plan rows."""
     rows = _load_csv_rows(
@@ -2287,6 +2362,7 @@ def load_staging_plan(path: Path) -> tuple[StagingPlanRow, ...]:
         lambda row: (row.source_path,),
         path.name,
     )
+    _reject_duplicate_staging_records(rows, path.name)
     return rows
 
 
@@ -2302,6 +2378,7 @@ def load_staging_copies(path: Path) -> tuple[StagingCopyRow, ...]:
         lambda row: (row.source_path,),
         path.name,
     )
+    _reject_duplicate_staging_records(rows, path.name)
     return rows
 
 
@@ -2317,6 +2394,7 @@ def load_staging_errors(path: Path) -> tuple[StagingErrorRow, ...]:
         lambda row: (row.source_path, row.stage, row.error_code),
         path.name,
     )
+    _reject_duplicate_staging_errors(rows, path.name)
     return rows
 
 
@@ -2507,6 +2585,11 @@ def validate_artifact_set(manifest_path: Path) -> ValidatedArtifactSet:
         staging_copy_rows,
         staging_error_rows,
     )
+    _validate_staging_referential_integrity(
+        staging_plan_rows,
+        staging_copy_rows,
+        staging_error_rows,
+    )
     return ValidatedArtifactSet(
         manifest=manifest,
         library_rows=library_rows,
@@ -2560,6 +2643,44 @@ def _validate_staging_scan_ids(
             "staging artifact row stage_id",
             "must be consistent across the registered staging family",
         )
+
+
+def _validate_staging_referential_integrity(
+    plan_rows: Sequence[StagingPlanRow],
+    copy_rows: Sequence[StagingCopyRow],
+    error_rows: Sequence[StagingErrorRow],
+) -> None:
+    plan_by_key = {(row.file_record_id, row.source_path): row for row in plan_rows}
+    copy_ids = {row.file_record_id for row in copy_rows}
+    for row_number, row in enumerate(copy_rows, start=2):
+        plan_row = plan_by_key.get((row.file_record_id, row.source_path))
+        if plan_row is None:
+            raise _error(
+                f"staging_copies.csv row {row_number}.file_record_id",
+                "does not reference a staging_plan row",
+            )
+        if plan_row.plan_status != "planned":
+            raise _error(
+                f"staging_copies.csv row {row_number}.file_record_id",
+                "references a staging_plan row that is not planned",
+            )
+    for row_number, row in enumerate(error_rows, start=2):
+        plan_row = plan_by_key.get((row.file_record_id, row.source_path))
+        if plan_row is None:
+            raise _error(
+                f"staging_errors.csv row {row_number}.file_record_id",
+                "does not reference a staging_plan row",
+            )
+        if plan_row.plan_status != "planned":
+            raise _error(
+                f"staging_errors.csv row {row_number}.file_record_id",
+                "references a staging_plan row that is not planned",
+            )
+        if row.file_record_id in copy_ids:
+            raise _error(
+                f"staging_errors.csv row {row_number}.file_record_id",
+                "must not also appear in staging_copies.csv",
+            )
 
 
 def _validate_primary_relationships(
