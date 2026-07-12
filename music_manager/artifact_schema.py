@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence, TypeVar
+from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar
 from uuid import RFC_4122, UUID, uuid5
 
 
@@ -220,6 +220,15 @@ _ARTIFACT_SPECS = {
         2,
     ),
 }
+ANALYSIS_ARTIFACT_NAMES = frozenset(
+    {
+        "library_analysis",
+        "duplicate_candidates",
+        "missing_metadata",
+        "corrupt_files",
+        "quality_summary",
+    }
+)
 MATCHING_ARTIFACT_NAMES = frozenset(
     {
         "musicbrainz_album_groups",
@@ -647,6 +656,24 @@ def make_file_fingerprint(file_size_bytes: int, modified_time_ns: int) -> str:
         raise ArtifactValidationError("modified_time_ns: must be an integer")
     payload = f"size={file_size_bytes}\nmtime_ns={modified_time_ns}\n".encode("utf-8")
     return f"stat-v1:{hashlib.sha256(payload).hexdigest()}"
+
+
+def required_schema_version(artifact_names: Iterable[str]) -> str:
+    """Return the minimum manifest schema_version for the given artifact names.
+
+    Each name's minimum minor version comes from the same artifact registry
+    that backs :class:`ArtifactEntry` (the data that makes ``staging_plan``
+    require schema 1.2 or newer). The result floors at schema ``1.0.0``, so an
+    empty ``artifact_names`` is valid and yields the base schema.
+    """
+    minimum_minor = 0
+    for name in artifact_names:
+        spec = _ARTIFACT_SPECS.get(name)
+        if spec is None:
+            raise _error("required_schema_version", f"unknown artifact name {name!r}")
+        _filename, _role, artifact_minor = spec
+        minimum_minor = max(minimum_minor, artifact_minor)
+    return f"1.{minimum_minor}.0"
 
 
 @dataclass(frozen=True)

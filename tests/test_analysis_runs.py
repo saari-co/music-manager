@@ -17,11 +17,22 @@ from uuid import UUID
 from music_manager import __version__
 from music_manager.analysis_runs import analyze_scan_run
 from music_manager.artifact_schema import (
+    MATCHING_ARTIFACT_NAMES,
+    STAGING_SCHEMA_VERSION,
     ArtifactValidationError,
     UnsupportedSchemaVersionError,
     load_scan_manifest,
     make_file_record_id,
     validate_artifact_set,
+)
+from music_manager.matcher import RecordingSearchResult, ReleaseGroupSearchResult
+from music_manager.musicbrainz_runs import register_musicbrainz_artifacts
+from music_manager.musicbrainz_scoring import score_musicbrainz_candidates
+from music_manager.musicbrainz_subjects import (
+    AlbumCandidateValues,
+    MusicBrainzCandidateRetrieval,
+    RecordingCandidateValues,
+    extract_musicbrainz_subjects,
 )
 from music_manager.reports import (
     CORRUPT_FILES_HEADER,
@@ -31,11 +42,13 @@ from music_manager.reports import (
     QUALITY_SUMMARY_HEADER,
 )
 from music_manager.scan_runs import create_scan_run
+from music_manager.staging_plans import create_staging_plan
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "v0_3" / "valid"
 SCAN_ID = UUID("12345678-1234-4abc-8def-1234567890ab")
 OTHER_SCAN_ID = UUID("87654321-4321-4abc-8def-1234567890ab")
+AUDIO_FILE_RECORD_ID = UUID("aec6a2b3-b8d7-55ea-a953-25d4c1a793dd")
 DERIVED_NAMES = {
     "library_analysis",
     "duplicate_candidates",
@@ -49,6 +62,68 @@ FILE_REPORTS = {
     "missing_metadata.csv",
     "corrupt_files.csv",
 }
+MATCHING_FILENAMES = {
+    "musicbrainz_album_groups.csv",
+    "musicbrainz_album_candidates.csv",
+    "musicbrainz_recording_candidates.csv",
+    "musicbrainz_match_results.csv",
+}
+
+
+def _matching_inputs(run_directory: Path):
+    """Build one minimal complete MusicBrainz subject/scoring pair.
+
+    Mirrors ``tests/test_musicbrainz_runs.py``'s fixture-input helper, trimmed
+    to the single album/recording candidate this fixture's one audio row
+    needs.
+    """
+    artifacts = validate_artifact_set(run_directory / "scan_manifest.json")
+    subjects = extract_musicbrainz_subjects(artifacts)
+    album_subject = subjects.albums[0]
+    recording_subject = subjects.recordings[0]
+    retrieval = MusicBrainzCandidateRetrieval(
+        scan_id=subjects.scan_id,
+        albums=(
+            AlbumCandidateValues(
+                album_group_id=album_subject.album_group_id,
+                candidates=(
+                    ReleaseGroupSearchResult(
+                        mbid=UUID("11111111-1111-4111-8111-111111111111"),
+                        title="Synthetic Album",
+                        artist_credit="Synthetic Album Artist",
+                        first_release_date="2024-01-02",
+                        primary_type="Album",
+                        secondary_types=(),
+                        search_score=100,
+                    ),
+                ),
+            ),
+        ),
+        recordings=(
+            RecordingCandidateValues(
+                file_record_id=recording_subject.file_record_id,
+                candidates=(
+                    RecordingSearchResult(
+                        mbid=UUID("22222222-2222-4222-8222-222222222222"),
+                        title="Synthetic Track",
+                        artist_credit="Synthetic Artist",
+                        duration_ms=201_250,
+                        first_release_date="2024",
+                        releases=(),
+                        search_score=99,
+                    ),
+                ),
+            ),
+        ),
+    )
+    return subjects, score_musicbrainz_candidates(subjects, retrieval)
+
+
+def _write_staging_approval(path: Path) -> None:
+    with path.open("w", encoding="utf-8", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(("scan_id", "file_record_id", "decision"))
+        writer.writerow((str(SCAN_ID), str(AUDIO_FILE_RECORD_ID), "stage"))
 
 
 class _FakeInfo:
@@ -578,6 +653,49 @@ class AnalysisRunTests(unittest.TestCase):
                 self.assertRaises(UnsupportedSchemaVersionError),
             ):
                 analyze_scan_run(run_directory)
+
+    def test_rerun_preserves_staging_and_musicbrainz_families(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = _copy_valid_run(root)
+            approval = root / "approval.csv"
+            _write_staging_approval(approval)
+
+            create_staging_plan(
+                run_directory,
+                approval,
+                stage_id_factory=lambda: UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                clock=_clock(20),
+            )
+            subjects, scoring = _matching_inputs(run_directory)
+            matching = register_musicbrainz_artifacts(
+                run_directory,
+                subjects,
+                scoring,
+                consent_source="cli",
+                clock=_clock(21),
+            )
+            self.assertEqual(matching.manifest.schema_version, STAGING_SCHEMA_VERSION)
+
+            staging_bytes_before = (run_directory / "staging_plan.csv").read_bytes()
+            musicbrainz_bytes_before = {
+                filename: (run_directory / filename).read_bytes()
+                for filename in MATCHING_FILENAMES
+            }
+
+            outcome = analyze_scan_run(run_directory, clock=_clock(22))
+
+            self.assertEqual(outcome.manifest.schema_version, STAGING_SCHEMA_VERSION)
+            self.assertIn("staging_plan", outcome.manifest.artifacts)
+            for name in MATCHING_ARTIFACT_NAMES:
+                self.assertIn(name, outcome.manifest.artifacts)
+            self.assertEqual(
+                (run_directory / "staging_plan.csv").read_bytes(),
+                staging_bytes_before,
+            )
+            for filename, before in musicbrainz_bytes_before.items():
+                self.assertEqual((run_directory / filename).read_bytes(), before)
+            validate_artifact_set(run_directory / "scan_manifest.json")
 
 
 if __name__ == "__main__":
