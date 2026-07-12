@@ -16,11 +16,11 @@ from music_manager import __version__
 from music_manager.artifact_schema import (
     STAGING_ARTIFACT_NAMES,
     STAGING_PLAN_HEADER,
-    STAGING_SCHEMA_VERSION,
     ArtifactValidationError,
     LibraryScanRow,
     ScanManifest,
     StagingPlanRow,
+    required_schema_version,
     validate_artifact_set,
 )
 
@@ -122,10 +122,8 @@ def load_approval_file(path: Path, scan_id: UUID) -> tuple[ApprovalRow, ...]:
                         decision=decision,
                     )
                 )
-    except (UnicodeDecodeError, csv.Error) as error:
-        raise ArtifactValidationError(
-            f"approval CSV: malformed CSV: {error}"
-        ) from error
+    except (OSError, UnicodeDecodeError, csv.Error) as error:
+        raise ArtifactValidationError(f"approval CSV: cannot read: {error}") from error
     return tuple(rows)
 
 
@@ -222,7 +220,6 @@ def _manifest_with_plan(
     digest: str,
 ) -> ScanManifest:
     data = base_manifest.to_dict()
-    data["schema_version"] = STAGING_SCHEMA_VERSION
     artifacts = dict(data["artifacts"])
     artifacts["staging_plan"] = {
         "filename": "staging_plan.csv",
@@ -234,6 +231,7 @@ def _manifest_with_plan(
         "configuration": {},
     }
     data["artifacts"] = artifacts
+    data["schema_version"] = required_schema_version(artifacts)
     return ScanManifest.from_dict(data)
 
 
@@ -296,6 +294,7 @@ def create_staging_plan(
     final_path = run_directory / "staging_plan.csv"
     manifest_changed = False
     final_replaced = False
+    conflict_detected = False
     try:
         staged_path, digest = _stage_plan_csv(run_directory, rows)
         base_manifest = _manifest_without_staging(original_manifest)
@@ -303,12 +302,35 @@ def create_staging_plan(
             base_manifest, generated_at, len(rows), digest
         )
 
+        # Phase 1: durably remove the stale staging_plan entry (if any) before
+        # touching staging_plan.csv. A crash after this point and before phase
+        # 2 below leaves a self-consistent manifest with no staging_plan entry.
+        if base_manifest.artifacts != original_manifest.artifacts:
+            _atomic_write_manifest(manifest_path, base_manifest)
+            manifest_changed = True
+
+        pre_swap_snapshot = manifest_path.read_bytes()
+
         if final_path.is_symlink() or final_path.exists():
-            backup_path = _temporary_path(final_path)
-            os.replace(final_path, backup_path)
+            candidate_backup = _temporary_path(final_path)
+            os.replace(final_path, candidate_backup)
+            backup_path = candidate_backup
         os.replace(staged_path, final_path)
         staged_path = None
         final_replaced = True
+
+        # Best-effort CAS: another registration (analysis, matching, or a
+        # concurrent staging run) may have replaced the manifest while we were
+        # swapping staging_plan.csv into place. Detect it before phase 2 so we
+        # never overwrite that interloper's manifest with stale content.
+        if manifest_path.read_bytes() != pre_swap_snapshot:
+            conflict_detected = True
+            raise ArtifactValidationError(
+                "scan manifest changed during staging plan registration"
+            )
+
+        # Phase 2: register the new entry now that its digest matches the
+        # file actually on disk.
         _atomic_write_manifest(manifest_path, final_manifest)
         manifest_changed = True
         validated = validate_artifact_set(manifest_path)
@@ -322,19 +344,31 @@ def create_staging_plan(
         )
     except Exception as error:
         rollback_errors: list[Exception] = []
-        if manifest_changed:
-            try:
-                _atomic_write_manifest(manifest_path, original_manifest)
-            except Exception as rollback_error:
-                rollback_errors.append(rollback_error)
         if final_replaced:
             try:
                 final_path.unlink(missing_ok=True)
             except Exception as rollback_error:
                 rollback_errors.append(rollback_error)
-        if backup_path is not None and backup_path.exists():
+        # The backup is unlinked only after a confirmed successful restore (or
+        # below, when there was never a backup to begin with). If the restore
+        # itself fails, the backup file must survive on disk untouched so the
+        # prior valid staging_plan.csv is never permanently lost.
+        csv_restored = backup_path is None
+        if backup_path is not None:
             try:
                 os.replace(backup_path, final_path)
+            except Exception as rollback_error:
+                rollback_errors.append(rollback_error)
+            else:
+                csv_restored = True
+                backup_path = None
+        # Restoring the original manifest (which references the old
+        # staging_plan digest) is only safe once staging_plan.csv is confirmed
+        # back to its original bytes, and only when nobody else has since
+        # written a newer manifest we would otherwise clobber.
+        if manifest_changed and csv_restored and not conflict_detected:
+            try:
+                _atomic_write_manifest(manifest_path, original_manifest)
             except Exception as rollback_error:
                 rollback_errors.append(rollback_error)
         if rollback_errors:
@@ -345,6 +379,7 @@ def create_staging_plan(
         raise
     finally:
         if staged_path is not None:
-            staged_path.unlink(missing_ok=True)
-        if backup_path is not None:
-            backup_path.unlink(missing_ok=True)
+            try:
+                staged_path.unlink(missing_ok=True)
+            except OSError:
+                pass

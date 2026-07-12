@@ -16,7 +16,6 @@ from uuid import UUID, uuid4
 from music_manager import __version__
 from music_manager.artifact_schema import (
     MATCHING_ARTIFACT_NAMES,
-    MATCHING_SCHEMA_VERSION,
     MUSICBRAINZ_ALBUM_CANDIDATES_HEADER,
     MUSICBRAINZ_ALBUM_GROUPS_HEADER,
     MUSICBRAINZ_MATCH_RESULTS_HEADER,
@@ -27,6 +26,7 @@ from music_manager.artifact_schema import (
     MusicBrainzMatchResultRow,
     MusicBrainzRecordingCandidateRow,
     ScanManifest,
+    required_schema_version,
     validate_artifact_set,
 )
 from music_manager.matcher import CONSENT_SOURCES, MUSICBRAINZ_CANDIDATE_LIMIT
@@ -384,10 +384,10 @@ def _manifest_with_matching(
     entries: Mapping[str, Mapping[str, object]],
 ) -> ScanManifest:
     data = base_manifest.to_dict()
-    data["schema_version"] = MATCHING_SCHEMA_VERSION
     artifacts = dict(data["artifacts"])
     artifacts.update(entries)
     data["artifacts"] = artifacts
+    data["schema_version"] = required_schema_version(artifacts)
     return ScanManifest.from_dict(data)
 
 
