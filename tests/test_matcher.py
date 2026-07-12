@@ -101,7 +101,7 @@ class MusicBrainzBoundaryTests(unittest.TestCase):
             shutil.copytree(FIXTURES, run_directory)
             manifest_path = run_directory / "scan_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["schema_version"] = "1.2.0"
+            manifest["schema_version"] = "1.3.0"
             manifest_path.write_text(
                 json.dumps(manifest, indent=2) + "\n",
                 encoding="utf-8",
