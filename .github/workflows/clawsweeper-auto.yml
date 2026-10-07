@@ -1,0 +1,84 @@
+name: ClawSweeper ready PR
+
+# Additive native event transport. Keep existing comment and issue workflows.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  relay:
+    if: vars.CLAWSWEEPER_SPARK_ENABLED == 'true' && !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Bind the native event to the current PR
+        id: live
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPO: ${{ github.repository }}
+          TARGET_ID: ${{ github.repository_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PYBIND'
+          import json, os, re, subprocess
+          def get(path):
+              return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+          def skip():
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+                  out.write('requested=false\n')
+              raise SystemExit(0)
+          if os.environ['GITHUB_EVENT_NAME'] != 'pull_request_target': skip()
+          target = os.environ['TARGET_REPO']
+          repo = get('repos/' + target)
+          if str(repo['id']) != os.environ['TARGET_ID']: raise SystemExit('Repository identity changed')
+          if repo.get('archived') or repo.get('disabled'): skip()
+          number = os.environ['PR_NUMBER']
+          if not re.fullmatch(r'[1-9][0-9]*', number): raise SystemExit('Invalid PR number')
+          pull = get(f'repos/{target}/pulls/{number}')
+          if pull['state'] != 'open' or pull['draft']: skip()
+          if pull['head']['repo']['id'] != repo['id']: skip()
+          if pull['base']['repo']['id'] != repo['id'] or pull['base']['ref'] != repo['default_branch']: skip()
+          base = get(f"repos/{target}/git/ref/heads/{repo['default_branch']}")['object']['sha']
+          head = pull['head']['sha']
+          if any(not re.fullmatch(r'[0-9a-f]{40}', sha) for sha in (base, head)): raise SystemExit('Invalid source tuple')
+          if base != pull['base']['sha']: raise SystemExit('Base moved during admission')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'requested=true\npr_number={number}\nbase_sha={base}\nhead_sha={head}\npublish=true\n')
+          PYBIND
+      - name: Bind request to this source workflow
+        if: steps.live.outputs.requested == 'true'
+        env:
+          TARGET_REPO: ${{ github.repository }}
+          TARGET_ID: ${{ github.repository_id }}
+          PR: ${{ steps.live.outputs.pr_number }}
+          BASE: ${{ steps.live.outputs.base_sha }}
+          HEAD: ${{ steps.live.outputs.head_sha }}
+        run: |
+          python3 -I - <<'PYREQUEST' > "$RUNNER_TEMP/clawsweeper-request.json"
+          import json, os
+          payload = dict(target_repo=os.environ['TARGET_REPO'], repository_id=os.environ['TARGET_ID'],
+                         pr=os.environ['PR'], requested_base=os.environ['BASE'], requested_head=os.environ['HEAD'],
+                         origin_repository=os.environ['GITHUB_REPOSITORY'], origin_run_id=os.environ['GITHUB_RUN_ID'],
+                         origin_run_attempt=os.environ['GITHUB_RUN_ATTEMPT'], comment_id='', publish=True)
+          print(json.dumps(dict(event_type='clawsweeper_native_pr', client_payload=payload)))
+          PYREQUEST
+      - name: Store immutable request evidence
+        if: steps.live.outputs.requested == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: clawsweeper-request-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clawsweeper-request.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Dispatch to private review host
+        if: steps.live.outputs.requested == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CLAWSWEEPER_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "$GH_TOKEN" ] || { echo 'ClawSweeper dispatch credential is not configured.' >&2; exit 1; }
+          gh api --method POST repos/saari-co/spark-dgx/dispatches --input "$RUNNER_TEMP/clawsweeper-request.json"
