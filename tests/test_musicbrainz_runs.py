@@ -22,6 +22,7 @@ from music_manager.artifact_schema import (
     MUSICBRAINZ_ALBUM_GROUPS_HEADER,
     MUSICBRAINZ_MATCH_RESULTS_HEADER,
     MUSICBRAINZ_RECORDING_CANDIDATES_HEADER,
+    STAGING_SCHEMA_VERSION,
     load_scan_manifest,
     make_file_record_id,
     validate_artifact_set,
@@ -35,10 +36,12 @@ from music_manager.musicbrainz_subjects import (
     RecordingCandidateValues,
     extract_musicbrainz_subjects,
 )
+from music_manager.staging_plans import create_staging_plan
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "v0_3" / "valid"
 SCAN_ID = UUID("12345678-1234-4abc-8def-1234567890ab")
+AUDIO_FILE_RECORD_ID = UUID("aec6a2b3-b8d7-55ea-a953-25d4c1a793dd")
 MATCHING_FILENAMES = {
     "musicbrainz_album_groups.csv",
     "musicbrainz_album_candidates.csv",
@@ -196,6 +199,65 @@ def _reverse_inventory_rows(run_directory: Path) -> None:
         json.dumps(manifest, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_staging_approval(path: Path) -> None:
+    with path.open("w", encoding="utf-8", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(("scan_id", "file_record_id", "decision"))
+        writer.writerow((str(SCAN_ID), str(AUDIO_FILE_RECORD_ID), "stage"))
+
+
+class MusicBrainzAndStagingInteractionTests(unittest.TestCase):
+    """Exercise family independence between staging and MusicBrainz matching."""
+
+    def test_matching_succeeds_with_a_staging_plan_already_registered(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = _copy_valid_run(root)
+            approval = root / "approval.csv"
+            _write_staging_approval(approval)
+            create_staging_plan(
+                run_directory,
+                approval,
+                stage_id_factory=lambda: UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                clock=_clock(20),
+            )
+
+            outcome = _register(run_directory, second=21)
+
+            self.assertEqual(outcome.manifest.schema_version, STAGING_SCHEMA_VERSION)
+            self.assertIn("staging_plan", outcome.manifest.artifacts)
+            for name in MATCHING_ARTIFACT_NAMES:
+                self.assertIn(name, outcome.manifest.artifacts)
+            validate_artifact_set(run_directory / "scan_manifest.json")
+
+    def test_staging_plan_after_matching_upgrades_schema_and_keeps_matching(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_directory = _copy_valid_run(root)
+            matching = _register(run_directory, second=22)
+            self.assertEqual(matching.manifest.schema_version, MATCHING_SCHEMA_VERSION)
+            approval = root / "approval.csv"
+            _write_staging_approval(approval)
+
+            outcome = create_staging_plan(
+                run_directory,
+                approval,
+                stage_id_factory=lambda: UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+                clock=_clock(23),
+            )
+
+            self.assertEqual(outcome.manifest.schema_version, STAGING_SCHEMA_VERSION)
+            self.assertIn("staging_plan", outcome.manifest.artifacts)
+            for name in MATCHING_ARTIFACT_NAMES:
+                self.assertEqual(
+                    outcome.manifest.artifacts[name],
+                    matching.manifest.artifacts[name],
+                )
+            validate_artifact_set(run_directory / "scan_manifest.json")
 
 
 class MusicBrainzArtifactRunTests(unittest.TestCase):

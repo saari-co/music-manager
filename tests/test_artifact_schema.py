@@ -24,6 +24,7 @@ from music_manager.artifact_schema import (
     load_scan_manifest,
     make_file_fingerprint,
     make_file_record_id,
+    required_schema_version,
     validate_artifact_set,
 )
 
@@ -261,6 +262,34 @@ class SchemaOneModelTests(unittest.TestCase):
             ),
             row["file_fingerprint"],
         )
+
+    def test_required_schema_version_computes_minimum_minor_across_families(
+        self,
+    ) -> None:
+        self.assertEqual(required_schema_version([]), "1.0.0")
+        self.assertEqual(
+            required_schema_version(["library_scan", "scan_errors"]),
+            "1.0.0",
+        )
+        self.assertEqual(
+            required_schema_version(
+                ["musicbrainz_album_groups", "musicbrainz_match_results"]
+            ),
+            "1.1.0",
+        )
+        self.assertEqual(required_schema_version(["staging_plan"]), "1.2.0")
+        self.assertEqual(
+            required_schema_version(
+                ["library_scan", "musicbrainz_match_results", "staging_copies"]
+            ),
+            "1.2.0",
+        )
+        self.assertEqual(
+            required_schema_version(["staging_errors", "musicbrainz_album_candidates"]),
+            "1.2.0",
+        )
+        with self.assertRaisesRegex(ArtifactValidationError, "unknown artifact name"):
+            required_schema_version(["not_a_real_artifact"])
 
     def test_library_row_rejects_invalid_value_representations(self) -> None:
         cases = {

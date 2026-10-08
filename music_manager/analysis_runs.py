@@ -17,11 +17,13 @@ from uuid import UUID, uuid4
 from music_manager import __version__
 from music_manager.analyzer import DEFAULT_DURATION_TOLERANCE, analyze_library
 from music_manager.artifact_schema import (
+    ANALYSIS_ARTIFACT_NAMES,
     ArtifactValidationError,
     LibraryScanRow,
     ScanErrorRow,
     ScanManifest,
     ValidatedArtifactSet,
+    required_schema_version,
     validate_artifact_set,
 )
 from music_manager.models import LibraryAnalysis, ScanRecord
@@ -177,22 +179,26 @@ def _derived_entry(
     }
 
 
-def _manifest_with_artifacts(
-    manifest: ScanManifest,
-    artifacts: Mapping[str, Mapping[str, object]],
-) -> ScanManifest:
+def _manifest_without_analysis(manifest: ScanManifest) -> ScanManifest:
     data = manifest.to_dict()
-    data["artifacts"] = dict(artifacts)
+    data["artifacts"] = {
+        name: entry.to_dict()
+        for name, entry in manifest.artifacts.items()
+        if name not in ANALYSIS_ARTIFACT_NAMES
+    }
     return ScanManifest.from_dict(data)
 
 
-def _primary_manifest(manifest: ScanManifest) -> ScanManifest:
-    primary_artifacts = {
-        name: entry.to_dict()
-        for name, entry in manifest.artifacts.items()
-        if entry.role == "primary"
-    }
-    return _manifest_with_artifacts(manifest, primary_artifacts)
+def _manifest_with_analysis(
+    base_manifest: ScanManifest,
+    entries: Mapping[str, Mapping[str, object]],
+) -> ScanManifest:
+    data = base_manifest.to_dict()
+    artifacts = dict(data["artifacts"])
+    artifacts.update(entries)
+    data["artifacts"] = artifacts
+    data["schema_version"] = required_schema_version(artifacts)
+    return ScanManifest.from_dict(data)
 
 
 def _atomic_write_manifest(path: Path, manifest: ScanManifest) -> None:
@@ -267,9 +273,9 @@ def analyze_scan_run(
             )
             for spec, _temporary, digest, row_count in staged
         }
-        primary_manifest = _primary_manifest(manifest)
-        if primary_manifest.artifacts != manifest.artifacts:
-            _atomic_write_manifest(manifest_path, primary_manifest)
+        base_manifest = _manifest_without_analysis(manifest)
+        if base_manifest.artifacts != manifest.artifacts:
+            _atomic_write_manifest(manifest_path, base_manifest)
 
         for index, (spec, temporary, digest, row_count) in enumerate(staged):
             if temporary is None:
@@ -279,14 +285,7 @@ def analyze_scan_run(
             finalized.append(final_path)
             staged[index] = (spec, None, digest, row_count)
 
-        final_artifacts = {
-            name: entry.to_dict() for name, entry in primary_manifest.artifacts.items()
-        }
-        final_artifacts.update(derived_entries)
-        final_manifest = _manifest_with_artifacts(
-            primary_manifest,
-            final_artifacts,
-        )
+        final_manifest = _manifest_with_analysis(base_manifest, derived_entries)
         _atomic_write_manifest(manifest_path, final_manifest)
         registered = True
         return AnalysisRunOutcome(
